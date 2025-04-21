@@ -1,0 +1,4 @@
+Ctrl + O -- same the file
+Ctrl + X -- exit the editor. If you haven't saved, nano will ask if you want to save
+Ctrl + K -- cut ("kill") a text line. Delete a line and save it on a clipboard.
+Ctrl + U -- paste teh cut text line.
