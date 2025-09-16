@@ -1,0 +1,46 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Labrador Sea... sort of",
+        "tags": "Labrador_Sea;Davis_Strait",
+        "object": "region",
+        "component": "ocean",
+        "author": "Kaila Uyeda"
+      },
+      "geometry": {
+        "coordinates": [
+          [
+            [
+              -66.78654628714224,
+              67.04329908963595
+            ],
+            [
+              -64.10071681349476,
+              57.52316136748382
+            ],
+            [
+              -56.444059335337954,
+              52.23600877585457
+            ],
+            [
+              -44.02529898728204,
+              60.55350636692381
+            ],
+            [
+              -49.99073597744223,
+              67.80090427662248
+            ],
+            [
+              -66.78654628714224,
+              67.04329908963595
+            ]
+          ]
+        ],
+        "type": "Polygon"
+      }
+    }
+  ]
+}

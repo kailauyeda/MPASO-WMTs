@@ -1,3 +1,2 @@
-readme for doe e3sm mpas-ocean grid optimization project
+### WMT in MPAS-Ocean
 
-project is located in ```$SCRATCH/E3SM_code/test_dir```
