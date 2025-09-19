@@ -1,6 +1,12 @@
 import numpy as np
 import xarray as xr
 
+
+# ***************************************************************************************
+
+# --------- HELPER FUNCTIONS --------------
+
+
 def n_to_xr_idx(n):
     return n-1
 
@@ -43,6 +49,69 @@ def xr_inside_mask_info(mesh,mask):
 
     return xr_cells_inside, xr_edges_inside, xr_vertices_inside
 
+def distance_on_unit_sphere(lon1, lat1, lon2, lat2, R=6.371e6, method="vincenty"):
+    """
+    Calculate geodesic arc distance between points (lon1, lat1) and (lon2, lat2).
+
+    PARAMETERS:
+    -----------
+        lon1 : float
+            Start longitude(s), in degrees
+        lat1 : float
+            Start latitude(s), in degrees
+        lon2 : float
+            End longitude(s), in degrees
+        lat2 : float
+            End latitude(s), in degrees
+        R : float
+            Radius of sphere. Default: 6.371e6 (realistic Earth value). Set to 1 for
+            arc distance in radius.
+        method : str
+            Name of method. Supported methods: ["vincenty", "haversine", "law of cosines"].
+            Default: "vincenty", which is the most robust. Note, however, that it still can result in
+            vanishingly small (but crucially non-zero) errors; such as that the distance between (0., 0.)
+            and (360., 0.) is 1.e-16 meters when it should be identically zero.
+
+    RETURNS:
+    --------
+
+    dist : float
+        Geodesic distance between points (lon1, lat1) and (lon2, lat2).
+    """
+    
+    phi1 = np.deg2rad(lat1)
+    phi2 = np.deg2rad(lat2)
+    dphi = np.abs(phi2-phi1)
+    
+    lam1 = np.deg2rad(lon1)
+    lam2 = np.deg2rad(lon2)
+    dlam = np.abs(lam2-lam1)
+    
+    if method=="vincenty":
+        numerator = np.sqrt(
+            (np.cos(phi2)*np.sin(dlam))**2 +
+            (np.cos(phi1)*np.sin(phi2) - np.sin(phi1)*np.cos(phi2)*np.cos(dlam))**2
+        )
+        denominator = np.sin(phi1)*np.sin(phi2) + np.cos(phi1)*np.cos(phi2)*np.cos(dlam)
+        arc = np.arctan2(numerator, denominator)
+        
+    elif method=="haversine":
+        arc = 2*np.arcsin(np.sqrt(
+            np.sin(dphi/2.)**2 + (1. - np.sin(dphi/2.)**2 - np.sin((phi1+phi2)/2.)**2)*np.sin(dlam/2.)**2
+        ))
+    
+        
+    elif method=="law of cosines":
+        arc = np.arccos(
+            np.sin(phi1)*np.sin(phi2) + np.cos(phi1)*np.cos(phi2)*np.cos(dlam)
+        )
+
+    return R * arc
+
+
+# ***************************************************************************************
+
+# --------- FUNCTIONS TO GET TRANSECT EDGES AND VERTICES FROM A MASK --------------
 
 def sorted_transect_edges_and_vertices(mesh, xr_mask_transect_edges, xr_mask_transect_vertices):
     # ----------- SORT THE EDGES IN XR_MASK_EDGES -----------
@@ -131,3 +200,175 @@ def xr_sorted_transect_edges_and_vertices(mesh,mask):
     next_edges, next_vertices = sorted_transect_edges_and_vertices(mesh, xr_mask_transect_edges, xr_mask_transect_vertices)
 
     return next_edges, next_vertices
+
+
+# ***************************************************************************************
+
+# --------- FUNCTIONS TO GET TRANSECT EDGES AND VERTICES FROM AN ALGORITHM --------------
+
+# function to calculate transect given a target start point, target end point, and mesh
+def calculate_transects(target_start_lat, target_start_lon, target_end_lat, target_end_lon, mesh, mask):
+    """
+    Calculate transects given a defined target start and end point.
+
+    PARAMETERS:
+    -----------
+        target_start_lat : float
+            Target start latitude, in degrees
+        target_start_lon : float
+            Target start longitude, in degrees
+        target_end_lat : float
+            Target end latitude, in degrees
+        mesh: xarray.core.dataset.Dataset
+            Mesh dataset containing lat/lon Cell/Edge/Vertex
+        mask: xarray.core.dataset.Dataset
+            Mask of 0s and 1s to define the desired study region (can be created using __ function)
+            
+    RETURNS:
+    -----------
+        next_vertices: np.ndarray
+            xr indices of nVertices that define the transect
+        xr_transect_edges: np.ndarray
+            xr indices of edges that define the transect
+        
+    """
+    # ---------- INITIATE START VERTEX ----------------
+    # of these transect cells, select the one that is closest to the desired starting point.
+    # desired values in deg
+    # distance_on_unit_sphere(lon1, lat1, lon2, lat 2)
+    # find the shortest path between the two points
+    # of all of the points, find the vertex that is closest to the desired start point
+    distance = distance_on_unit_sphere(mesh.lonVertex * 180/np.pi, mesh.latVertex * 180/np.pi, target_start_lon, target_start_lat)
+    xr_start_vertex = distance.argmin()
+    n_start_vertex = xr_to_n_idx(xr_start_vertex)
+
+    # repeat to find the vertex that is closest to the desired end point
+    dist_to_end = distance_on_unit_sphere(mesh.lonVertex * 180/np.pi, mesh.latVertex * 180/np.pi, target_end_lon, target_end_lat)
+    xr_end_vertex = dist_to_end.argmin()
+    end_lon = mesh.isel(nVertices = xr_end_vertex).lonVertex * 180/np.pi
+    end_lat = mesh.isel(nVertices = xr_end_vertex).latVertex * 180/np.pi
+
+    # print('start vertex is ','(lon,lat)= (', np.float32(mesh.lonVertex.isel(nVertices=xr_start_vertex).values * 180/np.pi), 
+    #                                         ', ' , np.float32(mesh.latVertex.isel(nVertices=xr_start_vertex).values * 180/np.pi), ')')
+    # print('start vertex xr_index is ', xr_start_vertex.values)
+
+    # ---------- FIND NEXT VERTEX ----------------
+    start_vertices = np.array([])
+    next_vertices = np.array([])
+    
+    count = 0
+
+    while distance.min() > 5000:
+        # get the edges attached to the start vertex
+        n_edgesOnStartVertex = mesh.edgesOnVertex.isel(nVertices = xr_start_vertex)
+        xr_edgesOnStartVertex = n_to_xr_idx(n_edgesOnStartVertex)
+        
+        # check that the edges you selected are connected to the start vertex (returns in n indices)
+        # mesh.verticesOnEdge.isel(nEdges = xr_edgesOnStartVertex[0])
+        
+        # for each of these edges, find the vertices they are connected to and then remove the start_vertex (we don't want to "travel back" to that vertex)
+        n_vertices_nextToStartVertex = np.unique(mesh.verticesOnEdge.isel(nEdges = np.int32(xr_edgesOnStartVertex)))
+        xr_vertices_nextToStartVertex = n_to_xr_idx(n_vertices_nextToStartVertex)
+        # print(xr_vertices_nextToStartVertex)
+    
+        used_vertices = np.union1d(start_vertices, xr_start_vertex)
+        
+        xr_vertices_nextToStartVertex_Use = np.delete(xr_vertices_nextToStartVertex, np.where(np.isin(xr_vertices_nextToStartVertex, used_vertices)))
+        # print(xr_vertices_nextToStartVertex_Use)
+        # calculate the distance from these new vertices to the desired end point
+            # retrieve the lat and lon of the vertex
+        ds_vertices_nextLatLon = mesh[['lonVertex','latVertex']].where(mesh.nVertices.isin(xr_vertices_nextToStartVertex_Use))
+        ds_vertices_nextLatLon['lonVertex'] = ds_vertices_nextLatLon.lonVertex * 180 / np.pi
+        ds_vertices_nextLatLon['latVertex'] = ds_vertices_nextLatLon.latVertex * 180 / np.pi
+        
+            # calculate the distance between the next vertices and the end
+        distance = distance_on_unit_sphere(ds_vertices_nextLatLon.lonVertex, ds_vertices_nextLatLon.latVertex, end_lon, end_lat)
+        
+            # select the nVertex that is the shortest distance from the end point
+        xr_chosen_nextVertex = distance.argmin()
+        
+        # ---------- UPDATE ARRAYS ----------------
+        # store vertices
+        start_vertices = np.append(start_vertices, xr_start_vertex)
+        next_vertices = np.append(next_vertices, xr_chosen_nextVertex)
+    
+        xr_start_vertex = xr_chosen_nextVertex 
+    
+        # if count%100==0:
+        #     print('(lon,lat)= (', mesh.lonVertex.isel(nVertices=xr_chosen_nextVertex).values * 180/np.pi, mesh.latVertex.isel(nVertices=xr_chosen_nextVertex).values * 180/np.pi, ')')
+        #     print('xr vertex = ', xr_start_vertex.values)
+        count +=1
+        if distance.min() < 10000: # 1 grid cell ~ 100km. distance is measured in meters (see R units) 
+            break
+
+# ---------- FIND EDGES OF TRANSECT ---------------- 
+    # We want to identify the edges that connect the vertices. The vertices are already ordered consecutively (because the transects are built from an algorithm)
+    # We will take advantage of this fact using a for loop to extract the edges that are shared between vertices next to each other
+    
+    # modify next_vertices to also include the start vertex
+    next_vertices = np.insert(next_vertices, 0, n_to_xr_idx(n_start_vertex))
+
+    
+    # next vertices are in xr indices
+    int_next_vertices = np.int32(next_vertices)
+    n_transect_edges = np.array([])
+    
+    for i in range(0,len(int_next_vertices)-1):
+        edgesOnVertex0 = mesh.edgesOnVertex.isel(nVertices = int_next_vertices[i]).values
+        edgesOnVertex1 = mesh.edgesOnVertex.isel(nVertices = int_next_vertices[i+1]).values
+        shared_edge = np.intersect1d(edgesOnVertex0, edgesOnVertex1)
+        n_transect_edges = np.append(n_transect_edges, shared_edge)
+    
+    xr_transect_edges = n_to_xr_idx(n_transect_edges)
+
+    return next_vertices, xr_transect_edges
+
+
+
+        
+# calculate transects using multiple points
+
+def calculate_transects_multiple_pts(segment_lons,segment_lats,mesh,mask):
+    all_xr_transect_vertices = np.array([])
+    all_xr_transect_edges = np.array([])
+    for i in range(0,len(segment_lons)-1):
+        
+        # set start and end target points based on segment lons and lats
+        target_start_lat = segment_lats[i]
+        target_start_lon = segment_lons[i]
+
+        target_end_lat = segment_lats[i+1]
+        target_end_lon = segment_lons[i+1]
+        
+        xr_next_vertices, xr_transect_edges_segment = calculate_transects(target_start_lat, target_start_lon, target_end_lat, target_end_lon, mesh, mask)
+
+        # update all_xr_transect_ arrays
+        all_xr_transect_vertices = np.concatenate((all_xr_transect_vertices, xr_next_vertices))
+        all_xr_transect_edges = np.concatenate((all_xr_transect_edges, xr_transect_edges_segment))
+
+    return all_xr_transect_vertices, all_xr_transect_edges
+        
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
