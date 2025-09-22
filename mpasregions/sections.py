@@ -1,5 +1,6 @@
 import numpy as np
 import xarray as xr
+import os
 
 
 # ***************************************************************************************
@@ -249,6 +250,7 @@ def calculate_transects(target_start_lat, target_start_lon, target_end_lat, targ
     end_lat = mesh.isel(nVertices = xr_end_vertex).latVertex * 180/np.pi
     
     
+    
     # ---------- FIND NEXT VERTEX ----------------
     start_vertices = np.array([])
     next_vertices = np.array([])
@@ -342,6 +344,71 @@ def calculate_transects_multiple_pts(segment_lons,segment_lats,mesh):
     return all_xr_transect_vertices, all_xr_transect_edges
         
 
+# get a .nc and .geojson mask from the region bordered by the transects created by the algorithm
+def transect_from_alg_create_nc(test_verts,mesh,filepath,filename,geojson_file_name,tags,author):
+    # get the lats and lons of the test_verts to use for creation of a geojson file
+    test_verts_lats = mesh.latVertex.isel(nVertices = np.int32(test_verts)) * 180 / np.pi 
+    test_verts_lons = mesh.lonVertex.isel(nVertices = np.int32(test_verts)) * 180 / np.pi - 360
+    
+    test_verts_lonslats = np.array([test_verts_lons,test_verts_lats]).T
+    list_test_verts_lonslats = test_verts_lonslats.tolist()
+
+    # ----------- CREATE GEOJSON FILE -----------
+    # check if the geojson mask file created from a transect algorithm exists
+    path = './'
+    alg_filename = filename + '_transect_from_alg'
+    
+    check_alg_geojson_existence = os.path.isfile(path + alg_filename + '.geojson')
+    
+    if check_alg_geojson_existence == True:
+        print(f'{alg_filename}.geojson exists!')
+    else:
+        print('Creating geojson file from vertices identified with transect algorithm')
+        
+        transect_from_alg = {
+            "type": "FeatureCollection",
+            "features": [{
+                "type": "Feature",
+                "properties":{
+                    "name":geojson_file_name,
+                    "tags":"Labrador_Sea;Davis_Strait",
+                    "object":"region",
+                    "component":"ocean",
+                    "author":"Kaila Uyeda"
+                },
+                "geometry": {
+                    "coordinates":[list_test_verts_lonslats],
+                    "type": "Polygon"
+                }
+            }]
+        }
+    
+        # save to a geojson file
+        # with = open and then close
+        # w = write mode
+        
+        with open(path + f'{alg_filename}.geojson','w') as f:
+            geojson.dump(transect_from_alg, f, indent=2)
+
+    # ----------- CREATE NETCDF FILE -----------
+    
+    # check if the .nc mask file created from a transect algorithm exists
+    check_alg_nc_existence = os.path.isfile(path + alg_filename + '.nc')
+    check_alg_nc_existence == False
+    
+    if check_alg_nc_existence == True:
+        print(f'Opening {alg_filename}.nc as dsMasks')
+        dsMasks = xr.open_dataset(path + alg_filename + '.nc')
+    else:
+        print('Creating netcdf mask file from geojson file (vertices identified from transect algorithm)')
+        fcMask = read_feature_collection(path + alg_filename + '.geojson')
+        # pool = create_pool(process_count=8)
+        dsMasks = compute_mpas_region_masks(mesh, fcMask, maskTypes=('cell',), pool=pool)
+        dsMasks.to_netcdf(path + alg_filename + '.nc', format='NETCDF4', mode='w')
+        dsMasks = xr.open_dataset(path + alg_filename + '.nc')
+        print(f'{alg_filename}.nc created and opened as dsMasks')
+
+    return test_verts_lats, test_verts_lons, dsMasks
 
 
 
