@@ -1,6 +1,8 @@
 import numpy as np
 import xarray as xr
 import os
+from mpas_tools.mesh.mask import compute_mpas_region_masks
+from geometric_features import read_feature_collection
 
 
 # ***************************************************************************************
@@ -15,7 +17,7 @@ def xr_to_n_idx(xr):
     return xr+1
 
 def xr_inside_mask_info(mesh,mask):
-    # STEP 1: Select all of the cells inside teh mask
+    # STEP 1: Select all of the cells inside the mask
     # create mask of cells so that whole cells are included in the mask
     cellmask = mask.regionCellMasks.isel(nRegions=0).astype(bool)
     
