@@ -17,6 +17,29 @@ def xr_to_n_idx(xr):
     return xr+1
 
 def xr_inside_mask_info(mesh,mask):
+    """
+    Find xr indices of the cells, edges, and vertices in a defined mask.
+    This includes the edges and vertices on the border of the mask.
+
+    Parameters
+    ----------
+    mesh: xarray.core.dataset.Dataset
+        Contains information about ocean model grid coordinates.
+        
+    mask: xarray.core.dataset.Dataset
+        Contains RegionCellMasks created from mpas_tools compute_mpas_region_masks
+
+    Returns 
+    -------
+    xr_cells_inside: numpy.ndarray
+        xr indices of the cells inside the mask
+        
+    xr_edges_inside: numpy.ndarray
+        xr indices of the edges inside the mask
+
+    xr_vertices_inside: numpy.ndarray
+        xr indices of the vertices inside the mask
+    """
     # STEP 1: Select all of the cells inside the mask
     # create mask of cells so that whole cells are included in the mask
     cellmask = mask.regionCellMasks.isel(nRegions=0).astype(bool)
@@ -117,6 +140,32 @@ def distance_on_unit_sphere(lon1, lat1, lon2, lat2, R=6.371e6, method="vincenty"
 # --------- FUNCTIONS TO GET TRANSECT EDGES AND VERTICES FROM A MASK --------------
 
 def sorted_transect_edges_and_vertices(mesh, xr_mask_transect_edges, xr_mask_transect_vertices):
+    """
+    Given transect edges and vertices, sort them to be in consecutive order.
+    This function is used when transects are created from a mask.
+    Includes edges and vertices that border land.
+    Called in the find_and_sort_transect_edges_and_vertices function.
+
+    Parameters
+    ----------
+    mesh: xarray.core.dataset.Dataset
+        Contains information about ocean model grid coordinates.
+        
+    xr_mask_transect_edges: numpy.ndarray
+        xr indices of the edges of that define a transect
+
+    xr_mask-transect_vertices: numpy.ndarray
+        xr indices of the vertices on the edges the define a transect
+
+    Returns
+    -------
+    np.int32(next_edges): numpy.ndarray
+        xr indices of the edges that define a transect now sorted to be in consecutive order
+
+    np.int32(next_vertices): numpy.ndarray
+        xr indices of the edges that define a transect now sorted to be in consecutive order
+    """
+    
     # ----------- SORT THE EDGES IN XR_MASK_EDGES -----------
     xr_startEdge = np.int32(xr_mask_transect_edges[0])
     n_startVertex = mesh.verticesOnEdge.isel(nEdges=xr_startEdge)[0]
@@ -157,7 +206,28 @@ def sorted_transect_edges_and_vertices(mesh, xr_mask_transect_edges, xr_mask_tra
 
     return np.int32(next_edges), np.int32(next_vertices)
     
-def xr_sorted_transect_edges_and_vertices(mesh,mask):
+# def xr_sorted_transect_edges_and_vertices(mesh,mask):
+def find_and_sort_transect_edges_and_vertices(mesh,mask):
+    """
+    Find vertices and edges that are on the edge of a mask (aka part of the transect). Then sort them to be in consecutive order.
+    Calls the sorted_transect_edges_and_vertices function.
+
+    Parameters
+    ----------
+    mesh: xarray.core.dataset.Dataset
+        Contains information about ocean model grid coordinates.
+
+    mask: xarray.core.dataset.Dataset
+        Contains RegionCellMasks created from mpas_tools compute_mpas_region_masks
+
+    Returns
+    -------
+    next_edges: numpy.ndarray
+        xr indices of the edges that define a transect now sorted to be in consecutive order
+
+    next_vertices: numpy.ndarray
+        xr indices of the edges that define a transect now sorted to be in consecutive order    
+    """
     # collect all cells, vertices, and edges in the mask
     xr_cells_inside, xr_edges_inside, xr_vertices_inside = xr_inside_mask_info(mesh,mask)
 
@@ -204,6 +274,49 @@ def xr_sorted_transect_edges_and_vertices(mesh,mask):
 
     return next_edges, next_vertices
 
+def transect_from_mask_create_nc(path,filename):
+    """
+    Open a mask file that was created from a geojson file. Create mask if none exists. 
+
+    Parameters
+    ----------
+    path: str
+        path to file location
+
+    filename: str
+        Prefix that filenames will begin with. Convention is location_transect_from_{mask or alg}
+        Do not include the ".nc"
+
+    Returns
+    -------
+    mask: xarray.core.dataset.Dataset
+        Contains RegionCellMasks created from mpas_tools compute_mpas_region_masks   
+    """
+    
+    check_nc_existence = os.path.isfile(path + filename + '.nc')
+    
+    # check if .nc mask file exists
+    if check_nc_existence == True:
+        print(f'Opening {filename}.nc file as mask')
+        mask = xr.open_dataset(path + filename + '.nc')
+    else: 
+        print('Creating .nc file')
+        check_geojson_existence = os.path.isfile(path + filename + '.geojson')
+    
+        # convert LS_test.geojson to LS_test.nc mask file
+        if check_geojson_existence == True:
+            print(f'Using {filename}.geojson to create .nc file')
+            fcMask = read_feature_collection(path + filename + '.geojson')
+            # pool = create_pool(process_count=8)
+            dsMasks = compute_mpas_region_masks(mesh, fcMask, maskTypes =('cell',), pool=pool)
+            dsMasks.to_netcdf(path + filename + '.nc', format='NETCDF4', mode='w')
+            mask = xr.open_dataset(path + filename + '.nc')
+            print(f'{filename}.nc created and opened as masks')
+        else:
+            print(f'{filename}.geojson does NOT exist!')
+
+    return mask
+
 
 # ***************************************************************************************
 
@@ -212,7 +325,9 @@ def xr_sorted_transect_edges_and_vertices(mesh,mask):
 # function to calculate transect given a target start point, target end point, and mesh
 def calculate_transects(target_start_lat, target_start_lon, target_end_lat, target_end_lon, mesh):
     """
-    Calculate transects given a defined target start and end point.
+    Calculate transects given a defined target start and end point using a nearest-neighbors algorithm.
+    Includes edges and vertices that border land.
+    Called in calculate_transects_multiple_pts
 
     PARAMETERS:
     -----------
@@ -326,6 +441,29 @@ def calculate_transects(target_start_lat, target_start_lon, target_end_lat, targ
 # calculate transects using multiple points
 
 def calculate_transects_multiple_pts(segment_lons,segment_lats,mesh):
+    """
+    Calculate transects given the longitude and latitude vertices in a polygon.
+    Calls calculate_transects
+
+    Parameters
+    ----------
+    segment_lons: numpy.ndarray
+        Longitude, in degrees, of consecutive vertices making up a polygon
+
+    segment_lats: numpy.ndarray
+        Latitude, in degrees, of consecutive vertices making up a polygon
+
+    mesh: xarray.core.dataset.Dataset
+        Contains information about ocean model grid coordinates.
+
+    Returns
+    -------
+    all_xr_transect_vertices: numpy.ndarray
+        xr indices of vertices in transect, sorted in consecutive order
+
+    all_xr_transect_edges: numpy.ndarray
+        xr indices of edges in transect, sorted in consecutive order
+    """
     all_xr_transect_vertices = np.array([])
     all_xr_transect_edges = np.array([])
     for i in range(0,len(segment_lons)-1):
@@ -343,11 +481,53 @@ def calculate_transects_multiple_pts(segment_lons,segment_lats,mesh):
         all_xr_transect_vertices = np.concatenate((all_xr_transect_vertices, xr_next_vertices))
         all_xr_transect_edges = np.concatenate((all_xr_transect_edges, xr_transect_edges_segment))
 
-    return all_xr_transect_vertices, all_xr_transect_edges
+    return all_xr_transect_edges, all_xr_transect_vertices
         
 
 # get a .nc and .geojson mask from the region bordered by the transects created by the algorithm
-def transect_from_alg_create_nc(test_verts,mesh,filepath,filename,geojson_file_name,tags,author):
+def transect_from_alg_create_nc(test_verts,mesh,path,filename,geojson_file_name,tags,author):
+    """
+    Get a .nc and .geojson mask from the region bordered by the transects created by the nearest-neighbors algorithm. 
+    ** NOTE ** 
+    The returned .nc file may contain extra vertices and edges that do not cells in the mask (i.e., borders land)
+    The post-processing step of calling the find_and_sort_transect_edges_and_vertices function must be used because it explicitly defines the mask boundaries based on cellsOnEdge (see "condition =" in find_and_sort_transect_edges_and_vertices function)
+
+    Parameters
+    ----------
+    test_verts: numpy.ndarray
+        Initial xr indices of vertices in transect (may contain duplicate vertex indices)
+
+    mesh: xarray.core.dataset.Dataset
+        Contains information about ocean model grid coordinates.
+
+    path: str
+        Path to desired file location
+
+    filename: str
+        Prefix that filenames will begin with. Convention is location_transect_from_{mask or alg}
+
+    geojson_file_name: str
+        Longer name/description of mask. Convention is "{Location} from transect {mask or alg}"
+
+    tags: str
+        geojson location tags
+
+    author: str
+        Author name
+
+    Returns
+    -------
+    test_verts_lats: xarray.core.dataarray.DataArray
+        Latitudes, in degrees, of vertices in the transect
+
+    test_verts_lons: xarray.core.dataarray.DataArray
+        Longitudes, in degrees, of vertices in the transect
+
+    dsMasks: xarray.core.dataset.Dataset
+        Contains RegionCellMasks created from mpas_tools compute_mpas_region_masks
+    
+    """
+    
     # get the lats and lons of the test_verts to use for creation of a geojson file
     test_verts_lats = mesh.latVertex.isel(nVertices = np.int32(test_verts)) * 180 / np.pi 
     test_verts_lons = mesh.lonVertex.isel(nVertices = np.int32(test_verts)) * 180 / np.pi - 360
@@ -357,7 +537,6 @@ def transect_from_alg_create_nc(test_verts,mesh,filepath,filename,geojson_file_n
 
     # ----------- CREATE GEOJSON FILE -----------
     # check if the geojson mask file created from a transect algorithm exists
-    path = './'
     alg_filename = filename + '_transect_from_alg'
     
     check_alg_geojson_existence = os.path.isfile(path + alg_filename + '.geojson')
