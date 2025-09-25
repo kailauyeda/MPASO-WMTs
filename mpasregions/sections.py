@@ -434,7 +434,7 @@ def calculate_transects(target_start_lat, target_start_lon, target_end_lat, targ
 
         
     
-    return next_vertices, xr_transect_edges
+    return xr_transect_edges, next_vertices
 
 
         
@@ -475,7 +475,7 @@ def calculate_transects_multiple_pts(segment_lons,segment_lats,mesh):
         target_end_lat = segment_lats[i+1]
         target_end_lon = segment_lons[i+1]
         
-        xr_next_vertices, xr_transect_edges_segment = calculate_transects(target_start_lat, target_start_lon, target_end_lat, target_end_lon, mesh)
+        xr_transect_edges_segment, xr_next_vertices = calculate_transects(target_start_lat, target_start_lon, target_end_lat, target_end_lon, mesh)
 
         # update all_xr_transect_ arrays
         all_xr_transect_vertices = np.concatenate((all_xr_transect_vertices, xr_next_vertices))
