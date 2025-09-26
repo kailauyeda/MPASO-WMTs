@@ -337,6 +337,8 @@ def calculate_transects(target_start_lat, target_start_lon, target_end_lat, targ
             Target start longitude, in degrees
         target_end_lat : float
             Target end latitude, in degrees
+        target_end_lon : float
+            Target end longitude, in degrees
         mesh: xarray.core.dataset.Dataset
             Mesh dataset containing lat/lon Cell/Edge/Vertex
             
@@ -366,7 +368,8 @@ def calculate_transects(target_start_lat, target_start_lon, target_end_lat, targ
     end_lon = mesh.isel(nVertices = xr_end_vertex).lonVertex * 180/np.pi
     end_lat = mesh.isel(nVertices = xr_end_vertex).latVertex * 180/np.pi
     
-    
+    # get an array of the start and end points (this is useful if transects are broken up by land)
+    xr_start_end_vertices = np.array([xr_start_vertex, xr_end_vertex])
     
     # ---------- FIND NEXT VERTEX ----------------
     start_vertices = np.array([])
@@ -466,6 +469,7 @@ def calculate_transects_multiple_pts(segment_lons,segment_lats,mesh):
     """
     all_xr_transect_vertices = np.array([])
     all_xr_transect_edges = np.array([])
+
     for i in range(0,len(segment_lons)-1):
         
         # set start and end target points based on segment lons and lats
@@ -475,7 +479,7 @@ def calculate_transects_multiple_pts(segment_lons,segment_lats,mesh):
         target_end_lat = segment_lats[i+1]
         target_end_lon = segment_lons[i+1]
         
-        xr_transect_edges_segment, xr_next_vertices = calculate_transects(target_start_lat, target_start_lon, target_end_lat, target_end_lon, mesh)
+        xr_transect_edges_segment, xr_next_vertices, xr_start_end_vertices = calculate_transects(target_start_lat, target_start_lon, target_end_lat, target_end_lon, mesh)
 
         # update all_xr_transect_ arrays
         all_xr_transect_vertices = np.concatenate((all_xr_transect_vertices, xr_next_vertices))
