@@ -3,7 +3,7 @@ import xarray as xr
 import os
 from mpas_tools.mesh.mask import compute_mpas_region_masks
 from geometric_features import read_feature_collection
-
+import geojson
 
 # ***************************************************************************************
 
@@ -197,6 +197,7 @@ def open_from_mask(mesh):
             print(f'Using {filename}.geojson to create .nc file')
             fcMask = read_feature_collection(path + filename + '.geojson')
             # pool = create_pool(process_count=8)
+            pool=None
             dsMasks = compute_mpas_region_masks(mesh, fcMask, maskTypes =('cell',), pool=pool)
             dsMasks.to_netcdf(path + filename + '.nc', format='NETCDF4', mode='w')
             mask = xr.open_dataset(path + filename + '.nc')
@@ -661,6 +662,7 @@ def transect_from_alg_create_nc(test_verts,mesh,path,filename,geojson_file_name,
         print('Creating netcdf mask file from geojson file (vertices identified from transect algorithm)')
         fcMask = read_feature_collection(path + alg_filename + '.geojson')
         # pool = create_pool(process_count=8)
+        pool = None
         dsMasks = compute_mpas_region_masks(mesh, fcMask, maskTypes=('cell',), pool=pool)
         dsMasks.to_netcdf(path + alg_filename + '.nc', format='NETCDF4', mode='w')
         dsMasks = xr.open_dataset(path + alg_filename + '.nc')
