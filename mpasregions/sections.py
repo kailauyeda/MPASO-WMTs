@@ -136,7 +136,78 @@ def distance_on_unit_sphere(lon1, lat1, lon2, lat2, R=6.371e6, method="vincenty"
 
     return R * arc
 
+## LAZY ATTEMPTS TO OPEN MESHES (WILL GENERALIZE LATER)
 
+def open_transect_from_alg(mesh):
+    # get edge and vertex indices
+    LS_lats= np.array([54, 60, 66, 64, 58])   
+    LS_lons= np.array([302, 315, 310, 295, 296])
+    
+    LS_lats = np.append(LS_lats, LS_lats[0])
+    LS_lons = np.append(LS_lons, LS_lons[0])
+    
+    # # calculate transects from algorithm, sort vertices & edges to be in consecutive order
+    test_edges, test_verts = calculate_transects_multiple_pts(LS_lons, LS_lats, mesh)
+    
+    # from the transect, create a mask to capture the entire region specified by the transects
+    # this will also output lats and lons corresponding to test_verts
+    path = './'
+    filename = 'LS_test'
+    geojson_file_name = 'Labrador Sea from transect algorithm'
+    tags = "Labrador_Sea;Davis_Strait"
+    author = "Kaila Uyeda"
+    
+        
+    test_verts_lats, test_verts_lons, dsMasks = transect_from_alg_create_nc(test_verts, 
+                                                                                mesh, 
+                                                                                path,
+                                                                                filename, 
+                                                                                geojson_file_name,
+                                                                                tags, 
+                                                                                author)
+    
+    # use the dsMasks file to get the ACTUAL working vertices that you will need
+    # this eliminates duplicate vertices that would occur if the transect moves back on itself
+    # check that the vertices and edges from the mask are actually at the same plaaces...
+    # in other words, we have the correct cells for the mask but extra edges and vertices because of how the transect is created.
+    # we have to do this after we create a mask with the cells. Otherwise, we don't know what side of the boundary
+    # is considered "inside the mask"
+    
+    alg_edges, alg_vertices = find_and_sort_transect_edges_and_vertices(mesh,dsMasks)
+
+    return alg_edges, alg_vertices, dsMasks
+
+def open_from_mask(mesh):
+    # open mask of desired region (this is to find transects from a pre-existing mask)
+    path = './'
+    filename = 'LS_test_transect_from_mask'
+    
+    check_nc_existence = os.path.isfile(path + filename + '.nc')
+    
+    # check if .nc mask file exists
+    if check_nc_existence == True:
+        print(f'Opening {filename}.nc file as mask')
+        mask = xr.open_dataset(path + filename + '.nc')
+    else: 
+        print('Creating .nc file')
+        check_geojson_existence = os.path.isfile(path + filename + '.geojson')
+    
+        # convert LS_test.geojson to LS_test.nc mask file
+        if check_geojson_existence == True:
+            print(f'Using {filename}.geojson to create .nc file')
+            fcMask = read_feature_collection(path + filename + '.geojson')
+            # pool = create_pool(process_count=8)
+            dsMasks = compute_mpas_region_masks(mesh, fcMask, maskTypes =('cell',), pool=pool)
+            dsMasks.to_netcdf(path + filename + '.nc', format='NETCDF4', mode='w')
+            mask = xr.open_dataset(path + filename + '.nc')
+            print(f'{filename}.nc created and opened as masks')
+        else:
+            print(f'{filename}.geojson does NOT exist!')
+    
+    mask_edges, mask_vertices = find_and_sort_transect_edges_and_vertices(mesh,mask)
+
+    return mask_edges, mask_vertices, mask
+    
 # ***************************************************************************************
 
 # --------- FUNCTIONS TO GET TRANSECT EDGES AND VERTICES FROM A MASK --------------
@@ -309,7 +380,7 @@ def transect_from_mask_create_nc(path,filename):
         if check_geojson_existence == True:
             print(f'Using {filename}.geojson to create .nc file')
             fcMask = read_feature_collection(path + filename + '.geojson')
-            # pool = create_pool(process_count=8)
+            pool = create_pool(process_count=8)
             dsMasks = compute_mpas_region_masks(mesh, fcMask, maskTypes =('cell',), pool=pool)
             dsMasks.to_netcdf(path + filename + '.nc', format='NETCDF4', mode='w')
             mask = xr.open_dataset(path + filename + '.nc')
