@@ -11,9 +11,11 @@ from geometric_features import read_feature_collection
 
 
 def n_to_xr_idx(n):
+    """Convert from 1-indexed mesh ID to 0-indexed Python index"""
     return n-1
 
 def xr_to_n_idx(xr):
+    """Convert from 0-indexed Python index to 1-indexed mesh ID"""
     return xr+1
 
 def xr_inside_mask_info(mesh,mask):

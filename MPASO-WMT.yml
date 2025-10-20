@@ -1,0 +1,19 @@
+name: MPASO-WMT
+channels:
+  - conda-forge
+dependencies:
+  - python=3.13
+  - ipykernel
+  - numpy
+  - xarray
+  - matplotlib
+  - cmocean
+  - mpas_tools
+  - geojson
+  - mosaic
+  - gsw
+  - xgcm>=0.9.0
+  - xhistogram
+  - pip
+  - pip:
+    - -e ./
