@@ -6,6 +6,8 @@ dependencies:
   - ipykernel
   - numpy
   - xarray
+  - numba
+  - bottleneck
   - matplotlib
   - cmocean
   - mpas_tools
