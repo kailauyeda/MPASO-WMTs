@@ -1,0 +1,46 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Southern Ocean region encomapssing Drake passage from transect algorithm",
+        "tags": "Labrador_Sea;Davis_Strait",
+        "object": "region",
+        "component": "ocean",
+        "author": "Kaila Uyeda"
+      },
+      "geometry": {
+        "coordinates": [
+          [
+            [
+              -109.98664462112887,
+              -75.01426191213405
+            ],
+            [
+              -110.21472448112206,
+              -50.03442331031496
+            ],
+            [
+              -9.91867984343213,
+              -49.990918548458964
+            ],
+            [
+              -9.91867984343213,
+              -49.990918548458964
+            ],
+            [
+              -13.63233584950217,
+              -72.11321684237065
+            ],
+            [
+              -109.98664462112887,
+              -75.01426191213405
+            ]
+          ]
+        ],
+        "type": "Polygon"
+      }
+    }
+  ]
+}
