@@ -145,24 +145,24 @@ def distance_on_unit_sphere(lon1, lat1, lon2, lat2, R=6.371e6, method="vincenty"
 
 ## LAZY ATTEMPTS TO OPEN MESHES (WILL GENERALIZE LATER)
 
-def open_transect_from_alg(ds):
-    # get edge and vertex indices
-    LS_lats= np.array([54, 60, 66, 64, 58])   
-    LS_lons= np.array([302, 315, 310, 295, 296])
+def open_transect_from_alg(ds, lats, lons, path, filename, geojson_file_name, tags, author):
+    """
+    A less lazy attempt to open transect from mask files
+    Parameters:
+    ----------
+
+    Returns:
+    -------
+    """
     
-    LS_lats = np.append(LS_lats, LS_lats[0])
-    LS_lons = np.append(LS_lons, LS_lons[0])
+    LS_lats = np.append(lats, lats[0])
+    LS_lons = np.append(lons, lons[0])
     
     # # calculate transects from algorithm, sort vertices & edges to be in consecutive order
     test_edges, test_verts = calculate_transects_multiple_pts(LS_lons, LS_lats, ds)
     
     # from the transect, create a mask to capture the entire region specified by the transects
     # this will also output lats and lons corresponding to test_verts
-    path = './'
-    filename = 'LS_test'
-    geojson_file_name = 'Labrador Sea from transect algorithm'
-    tags = "Labrador_Sea;Davis_Strait"
-    author = "Kaila Uyeda"
     
         
     test_verts_lats, test_verts_lons, dsMasks = transect_from_alg_create_nc(test_verts, 
@@ -172,17 +172,7 @@ def open_transect_from_alg(ds):
                                                                                 geojson_file_name,
                                                                                 tags, 
                                                                                 author)
-    
-    # use the dsMasks file to get the ACTUAL working vertices that you will need
-    # this eliminates duplicate vertices that would occur if the transect moves back on itself
-    # check that the vertices and edges from the mask are actually at the same plaaces...
-    # in other words, we have the correct cells for the mask but extra edges and vertices because of how the transect is created.
-    # we have to do this after we create a mask with the cells. Otherwise, we don't know what side of the boundary
-    # is considered "inside the mask"
-    
-    alg_edges, alg_vertices = find_and_sort_transect_edges_and_vertices(ds,dsMasks)
-
-    return alg_edges, alg_vertices, dsMasks
+    return dsMasks
 
 def open_from_mask(ds):
     # open mask of desired region (this is to find transects from a pre-existing mask)
@@ -226,7 +216,7 @@ def sorted_transect_edges_and_vertices(ds, xr_mask_transect_edges, xr_mask_trans
     This function is used when transects are created from a mask.
     Includes edges and vertices that border land.
     Called in the find_and_sort_transect_edges_and_vertices function.
-
+    
     Parameters
     ----------
     ds: xarray.core.dataset.Dataset
@@ -234,19 +224,19 @@ def sorted_transect_edges_and_vertices(ds, xr_mask_transect_edges, xr_mask_trans
         
     xr_mask_transect_edges: numpy.ndarray
         xr indices of the edges of that define a transect
-
+    
     xr_mask-transect_vertices: numpy.ndarray
         xr indices of the vertices on the edges the define a transect
-
+    
     Returns
     -------
     np.int32(next_edges): numpy.ndarray
         xr indices of the edges that define a transect now sorted to be in consecutive order
-
+    
     np.int32(next_vertices): numpy.ndarray
         xr indices of the edges that define a transect now sorted to be in consecutive order
     """
-    
+
     # ----------- SORT THE EDGES IN XR_MASK_EDGES -----------
     xr_startEdge = np.int32(xr_mask_transect_edges[0])
     n_startVertex = ds.verticesOnEdge.isel(nEdges=xr_startEdge)[0]
@@ -257,6 +247,7 @@ def sorted_transect_edges_and_vertices(ds, xr_mask_transect_edges, xr_mask_trans
     
     next_edges = np.array([xr_startEdge])
     next_vertices = np.array([xr_startVertex])
+    counter = 0
     
     while len(remaining_edges)>0:
         # from the start vertex, find the edge attached to it s.t. the edge is also part of xr_mask_edges
@@ -264,22 +255,30 @@ def sorted_transect_edges_and_vertices(ds, xr_mask_transect_edges, xr_mask_trans
         xr_edgesOnStartVertex = n_to_xr_idx(n_edgesOnStartVertex)
         
         xr_nextEdge = np.intersect1d(xr_edgesOnStartVertex, remaining_edges)
+        if xr_nextEdge.size==0:
+            break
+        else:
         
-        # get the vertex that is not the previous vertex
-        n_nextVertices = ds.verticesOnEdge.isel(nEdges = np.int32(xr_nextEdge))
-        xr_nextVertices_raw = n_to_xr_idx(n_nextVertices)
-        xr_nextVertices = np.int32(xr_nextVertices_raw)
+            # get the vertex that is not the previous vertex
+            n_nextVertices = ds.verticesOnEdge.isel(nEdges = np.int32(xr_nextEdge))
+            xr_nextVertices_raw = n_to_xr_idx(n_nextVertices)
+            xr_nextVertices = np.int32(xr_nextVertices_raw)
+            
+            xr_nextVertex_raw = xr_nextVertices[np.isin(xr_nextVertices, remaining_vertices)]
+            xr_nextVertex = np.int32(xr_nextVertex_raw) 
+            
         
-        xr_nextVertex_raw = xr_nextVertices[np.isin(xr_nextVertices, remaining_vertices)]
-        xr_nextVertex = np.int32(xr_nextVertex_raw)
-        
-        # update arrays
-        remaining_edges = remaining_edges[remaining_edges != xr_nextEdge]
-        remaining_vertices = remaining_vertices[remaining_vertices != xr_nextVertex]
-        next_edges = np.append(next_edges, xr_nextEdge)
-        next_vertices = np.append(next_vertices, xr_nextVertex)
-        
-        xr_startVertex = xr_nextVertex
+            # stop if the next identified edge is not in the remaining edges (this means the rest of the remaining edges 
+            # are islands or closed loops  
+            # update arrays
+            next_edges = np.append(next_edges, xr_nextEdge)
+            next_vertices = np.append(next_vertices, xr_nextVertex)
+            remaining_edges = remaining_edges[remaining_edges != xr_nextEdge]
+            remaining_vertices = remaining_vertices[remaining_vertices != xr_nextVertex]
+            xr_startVertex = xr_nextVertex
+            counter +=1
+    
+            
     
     # add the start vertex (which was used twice as the start and end) onto the end as well
     next_vertices = np.append(next_vertices,n_to_xr_idx(n_startVertex)) 
@@ -287,70 +286,69 @@ def sorted_transect_edges_and_vertices(ds, xr_mask_transect_edges, xr_mask_trans
 
     return np.int32(next_edges), np.int32(next_vertices)
     
-# def xr_sorted_transect_edges_and_vertices(ds,mask):
 def find_and_sort_transect_edges_and_vertices(ds,mask):
     """
     Find vertices and edges that are on the edge of a mask (aka part of the transect). Then sort them to be in consecutive order.
     Calls the sorted_transect_edges_and_vertices function.
-
+    
     Parameters
     ----------
     ds: xarray.core.dataset.Dataset
         Contains information about ocean model grid coordinates.
-
+    
     mask: xarray.core.dataset.Dataset
         Contains RegionCellMasks created from mpas_tools compute_mpas_region_masks
-
+    
     Returns
     -------
     next_edges: numpy.ndarray
         xr indices of the edges that define a transect now sorted to be in consecutive order
-
+    
     next_vertices: numpy.ndarray
         xr indices of the edges that define a transect now sorted to be in consecutive order    
     """
     # collect all cells, vertices, and edges in the mask
     xr_cells_inside, xr_edges_inside, xr_vertices_inside = xr_inside_mask_info(ds,mask)
-
+    
     # ----- MASK EDGES ON LAND -----
     # find edges where one of the cells on edge is land
     all_edgesOnLand_TWO0 = ds.nEdges.where(np.isin(ds.cellsOnEdge.isel(TWO=0),0))
     all_edgesOnLand_TWO1 = ds.nEdges.where(np.isin(ds.cellsOnEdge.isel(TWO=1),0))
     all_edgesOnLand = np.union1d(all_edgesOnLand_TWO0, all_edgesOnLand_TWO1)
-
+    
     # then get all the edges inside the mask
     # xr_edges_inside
-
+    
     # take the intersection of edges inside the mask and all edges on land
     # give mask edges on land
     mask_edgesOnLand = np.intersect1d(xr_edges_inside, all_edgesOnLand)
-
+    
     # ----- MASK EDGES ON OPEN OCEAN -----
     # identify cells NOT in the mask
     xr_cells_outside = ds.nCells[~np.isin(ds.nCells, xr_cells_inside)]
     n_cells_outside = xr_to_n_idx(xr_cells_outside)
-
+    
     n_cells_inside = xr_to_n_idx(xr_cells_inside)
-
+    
     # condition where one of the cells is inside the mask and the other is outside the mask
     # this gives cells on the border of the mask
     
     condition = (np.isin(ds.cellsOnEdge.isel(TWO=0),n_cells_outside)) & (np.isin(ds.cellsOnEdge.isel(TWO=1),n_cells_inside)) | \
             (np.isin(ds.cellsOnEdge.isel(TWO=0),n_cells_inside)) & (np.isin(ds.cellsOnEdge.isel(TWO=1), n_cells_outside))
-
+    
     all_edgesOnMask = ds.nEdges.where(condition)
-
+    
     # take the intersection of edges that border the mask and the edges inside the mask 
     # (this prevents edges on the border outside of the mask from being counted)
     mask_edgesOnOcean = np.intersect1d(xr_edges_inside, all_edgesOnMask)
-
+    
     # combine the edges on land in the mask with the edges of the mask in the open ocean
     xr_mask_transect_edges = np.union1d(mask_edgesOnLand, mask_edgesOnOcean)
-
+    
     # ----------- FIND ALL VERTICES ON EDGES -----------
     n_mask_transect_vertices = ds.verticesOnEdge.isel(nEdges = np.int32(xr_mask_transect_edges))
     xr_mask_transect_vertices = np.unique(n_to_xr_idx(n_mask_transect_vertices))
-
+    
     next_edges, next_vertices = sorted_transect_edges_and_vertices(ds, xr_mask_transect_edges, xr_mask_transect_vertices)
 
     return next_edges, next_vertices
