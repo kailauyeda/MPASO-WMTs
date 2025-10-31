@@ -154,12 +154,12 @@ def open_transect_from_alg(ds, lats, lons, path, filename, geojson_file_name, ta
     Returns:
     -------
     """
-    
-    LS_lats = np.append(lats, lats[0])
-    LS_lons = np.append(lons, lons[0])
+    # get edge and vertex indices   
+    region_lats = np.append(lats, lats[0])
+    region_lons = np.append(lons, lons[0])
     
     # # calculate transects from algorithm, sort vertices & edges to be in consecutive order
-    test_edges, test_verts = calculate_transects_multiple_pts(LS_lons, LS_lats, ds)
+    test_edges, test_verts = calculate_transects_multiple_pts(region_lons, region_lats, ds)
     
     # from the transect, create a mask to capture the entire region specified by the transects
     # this will also output lats and lons corresponding to test_verts
@@ -172,7 +172,10 @@ def open_transect_from_alg(ds, lats, lons, path, filename, geojson_file_name, ta
                                                                                 geojson_file_name,
                                                                                 tags, 
                                                                                 author)
-    return dsMasks
+
+    alg_edges, alg_vertices = find_and_sort_transect_edges_and_vertices(ds,dsMasks)
+    
+    return alg_edges, alg_vertices, dsMasks
 
 def open_from_mask(ds):
     # open mask of desired region (this is to find transects from a pre-existing mask)
