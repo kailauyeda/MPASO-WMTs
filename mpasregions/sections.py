@@ -147,7 +147,7 @@ def distance_on_unit_sphere(lon1, lat1, lon2, lat2, R=6.371e6, method="vincenty"
 
 def open_transect_from_alg(ds, lats, lons, path, filename, geojson_file_name, tags, author):
     """
-    A less lazy attempt to open transect from mask files
+    A less lazy attempt to open transect from alg files
     Parameters:
     ----------
 
@@ -177,10 +177,17 @@ def open_transect_from_alg(ds, lats, lons, path, filename, geojson_file_name, ta
     
     return alg_edges, alg_vertices, dsMasks
 
-def open_from_mask(ds):
+def open_from_mask(ds,path,filename):
+    """
+    A less lazy attempt to open transect from mask files
+
+    Parameters:
+    ----------
+
+    Returns:
+    -------
+    """
     # open mask of desired region (this is to find transects from a pre-existing mask)
-    path = './'
-    filename = 'LS_test_transect_from_mask'
     
     check_nc_existence = os.path.isfile(path + filename + '.nc')
     
@@ -893,7 +900,23 @@ def transport_in_density_space_from_ds(ds, edges, mask, target_coords):
     return dss_transect_edges_vIM, transport_transformed_cons
 
 
+def transports_in_density_space_all_functions(ds,lats,lons,path,filename,geojson_file_name,tags,author, target_coords):
+    """
+    Calculate the transport in density space from scratch (create transect, mask, calculate transport)
+    Parameters:
+    ----------
 
+    Returns:
+    -------
+    """
+    if method == 'transect':
+        edges, vertices, mask = open_transect_from_alg(ds,lats,lons,path,filename,geojson_file_name,tags,author)
+    if method == 'mask':
+        edges, vertices, mask =  open_from_mask(ds,path,filename)
+        
+    dss_transect_edges_vIM, transport_transformed_cons = transport_in_density_space_from_ds(ds,edges, mask, target_coords)
+
+    return edges, vertices, mask, dss_transect_edges_vIM, transport_transformed_cons
 
 
 
