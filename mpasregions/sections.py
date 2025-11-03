@@ -4,6 +4,7 @@ import os
 from mpas_tools.mesh.mask import compute_mpas_region_masks
 from geometric_features import read_feature_collection
 import geojson
+import json
 from xgcm import Grid
 
 # ***************************************************************************************
@@ -177,7 +178,7 @@ def open_transect_from_alg(ds, lats, lons, path, filename, geojson_file_name, ta
     
     return alg_edges, alg_vertices, dsMasks
 
-def open_from_mask(ds,path,filename):
+def open_from_mask(ds,path,filename,geojson_file_name, tags, author):
     """
     A less lazy attempt to open transect from mask files
 
@@ -201,6 +202,8 @@ def open_from_mask(ds,path,filename):
     
         # convert LS_test.geojson to LS_test.nc mask file
         if check_geojson_existence == True:
+            print(f'Modifying {filename}.geojson properties')
+            modify_geojson(path, filename, geojson_file_name, tags, author)
             print(f'Using {filename}.geojson to create .nc file')
             fcMask = read_feature_collection(path + filename + '.geojson')
             # pool = create_pool(process_count=8)
@@ -363,48 +366,40 @@ def find_and_sort_transect_edges_and_vertices(ds,mask):
 
     return next_edges, next_vertices
 
-def transect_from_mask_create_nc(path,filename):
+def modify_geojson(path, filename, geojson_file_name, tags, author):
     """
-    Open a mask file that was created from a geojson file. Create mask if none exists. 
+    Add properties to geojson file to allow for conversion to .nc mask in transect_from_mask_create_nc function
 
     Parameters
     ----------
-    path: str
-        path to file location
-
-    filename: str
-        Prefix that filenames will begin with. Convention is location_transect_from_{mask or alg}
-        Do not include the ".nc"
 
     Returns
     -------
-    mask: xarray.core.dataset.Dataset
-        Contains RegionCellMasks created from mpas_tools compute_mpas_region_masks   
+    
     """
-    
-    check_nc_existence = os.path.isfile(path + filename + '.nc')
-    
-    # check if .nc mask file exists
-    if check_nc_existence == True:
-        print(f'Opening {filename}.nc file as mask')
-        mask = xr.open_dataset(path + filename + '.nc')
-    else: 
-        print('Creating .nc file')
-        check_geojson_existence = os.path.isfile(path + filename + '.geojson')
-    
-        # convert LS_test.geojson to LS_test.nc mask file
-        if check_geojson_existence == True:
-            print(f'Using {filename}.geojson to create .nc file')
-            fcMask = read_feature_collection(path + filename + '.geojson')
-            pool = create_pool(process_count=8)
-            dsMasks = compute_mpas_region_masks(ds, fcMask, maskTypes =('cell',), pool=pool)
-            dsMasks.to_netcdf(path + filename + '.nc', format='NETCDF4', mode='w')
-            mask = xr.open_dataset(path + filename + '.nc')
-            print(f'{filename}.nc created and opened as masks')
-        else:
-            print(f'{filename}.geojson does NOT exist!')
+    with open(path + filename + '.geojson') as f:
+        geojson_file = geojson.load(f)
 
-    return mask
+    # define new properties
+    properties_dict_modified = {
+                                "name": geojson_file_name,
+                                "component": "ocean",
+                                "object": "region",
+                                "author": author,
+                               }
+
+    # update properties for each feature
+    for feature in geojson_file['features']:
+        feature['properties'] = properties_dict_modified
+
+    # save new geojson file
+    with open(path + filename + '_modified' + '.geojson', 'w') as f:
+        json.dump(geojson_file, f, indent=2)
+
+    # rename modified filename to just filename
+    os.remove(path + filename + '.geojson')
+    os.rename(path + filename + '_modified.geojson', path + filename + '.geojson')
+    print(filename + '.geojson modified with new properties')
 
 
 # ***************************************************************************************
@@ -900,7 +895,7 @@ def transport_in_density_space_from_ds(ds, edges, mask, target_coords):
     return dss_transect_edges_vIM, transport_transformed_cons
 
 
-def transports_in_density_space_all_functions(ds,lats,lons,path,filename,geojson_file_name,tags,author, target_coords):
+def transports_in_density_space_all_functions(ds,lats,lons,path,filename,geojson_file_name,tags,author, target_coords,method):
     """
     Calculate the transport in density space from scratch (create transect, mask, calculate transport)
     Parameters:
@@ -909,10 +904,10 @@ def transports_in_density_space_all_functions(ds,lats,lons,path,filename,geojson
     Returns:
     -------
     """
-    if method == 'transect':
+    if method == 'alg':
         edges, vertices, mask = open_transect_from_alg(ds,lats,lons,path,filename,geojson_file_name,tags,author)
     if method == 'mask':
-        edges, vertices, mask =  open_from_mask(ds,path,filename)
+        edges, vertices, mask =  open_from_mask(ds,path,filename,geojson_file_name, tags, author)
         
     dss_transect_edges_vIM, transport_transformed_cons = transport_in_density_space_from_ds(ds,edges, mask, target_coords)
 
