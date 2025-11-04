@@ -618,7 +618,7 @@ def transect_from_alg_create_nc(test_verts,ds,path,filename,geojson_file_name,ta
     
     # get the lats and lons of the test_verts to use for creation of a geojson file
     test_verts_lats = ds.latVertex.isel(nVertices = np.int32(test_verts)) * 180 / np.pi 
-    test_verts_lons = ds.lonVertex.isel(nVertices = np.int32(test_verts)) * 180 / np.pi - 360
+    test_verts_lons = ds.lonVertex.isel(nVertices = np.int32(test_verts)) * 180 / np.pi + -180 # - 360
     
     test_verts_lonslats = np.array([test_verts_lons,test_verts_lats]).T
     list_test_verts_lonslats = test_verts_lonslats.tolist()
