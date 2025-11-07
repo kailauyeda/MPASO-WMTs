@@ -408,61 +408,48 @@ def modify_geojson(path, filename, geojson_file_name, tags, author):
 
 # function to calculate transect given a target start point, target end point, and ds
 def calculate_transects(target_start_lat, target_start_lon, target_end_lat, target_end_lon, ds):
-    """
-    Calculate transects given a defined target start and end point using a nearest-neighbors algorithm.
-    Includes edges and vertices that border land.
-    Called in calculate_transects_multiple_pts
-
-    PARAMETERS:
-    -----------
-        target_start_lat : float
-            Target start latitude, in degrees
-        target_start_lon : float
-            Target start longitude, in degrees
-        target_end_lat : float
-            Target end latitude, in degrees
-        target_end_lon : float
-            Target end longitude, in degrees
-        ds: xarray.core.dataset.Dataset
-            ds dataset containing lat/lon Cell/Edge/Vertex
-            
-    RETURNS:
-    -----------
-        next_vertices: np.ndarray
-            xr indices of nVertices that define the transect
-        xr_transect_edges: np.ndarray
-            xr indices of edges that define the transect
-        
-    """
     # ---------- INITIATE START VERTEX ----------------
     # of these transect cells, select the one that is closest to the desired starting point.
     # desired values in deg
     # distance_on_unit_sphere(lon1, lat1, lon2, lat 2)
     # find the shortest path between the two points
     # of all of the points, find the vertex that is closest to the desired start point
-    distance = distance_on_unit_sphere(ds.lonVertex * 180/np.pi, ds.latVertex * 180/np.pi, target_start_lon, target_start_lat)
-    xr_start_vertex = distance.argmin()
+    dist_to_start = distance_on_unit_sphere(ds.lonVertex * 180/np.pi, ds.latVertex * 180/np.pi, target_start_lon, target_start_lat)
+    xr_start_vertex = dist_to_start.argmin()
+    print('very first start vertex is ', np.int32(xr_start_vertex))
     n_start_vertex = xr_to_n_idx(xr_start_vertex)
+    
+    start_lon = ds.isel(nVertices = xr_start_vertex).lonVertex * 180/np.pi
+    start_lat = ds.isel(nVertices = xr_start_vertex).latVertex * 180/np.pi
     
     # repeat to find the vertex that is closest to the desired end point
     dist_to_end = distance_on_unit_sphere(ds.lonVertex * 180/np.pi, ds.latVertex * 180/np.pi, target_end_lon, target_end_lat)
-
+    
     # get the vertex closest to the target end lat and lon
     xr_end_vertex = dist_to_end.argmin()
+    print('xr_end_vertex is ', np.int32(xr_end_vertex))
     end_lon = ds.isel(nVertices = xr_end_vertex).lonVertex * 180/np.pi
     end_lat = ds.isel(nVertices = xr_end_vertex).latVertex * 180/np.pi
     
     # get an array of the start and end points (this is useful if transects are broken up by land)
     xr_start_end_vertices = np.array([xr_start_vertex, xr_end_vertex])
     
+    # get distance between target start point and target end point
+    distance = distance_on_unit_sphere(start_lon, start_lat, target_end_lon, target_end_lat)
+    
     # ---------- FIND NEXT VERTEX ----------------
     start_vertices = np.array([])
     next_vertices = np.array([])
     
-    while distance.min() > 10000:
+    count=0
+    
+    while distance.min() > 10: #10000:
+        count += 1
+        ### print(count)
         # get the edges attached to the start vertex
         n_edgesOnStartVertex = ds.edgesOnVertex.isel(nVertices = xr_start_vertex)
         xr_edgesOnStartVertex = n_to_xr_idx(n_edgesOnStartVertex)
+        ### print('edges attached to start vertex ', np.int32(xr_start_vertex), ' are ', xr_edgesOnStartVertex)
         
         # check that the edges you selected are connected to the start vertex (returns in n indices)
         # ds.verticesOnEdge.isel(nEdges = xr_edgesOnStartVertex[0])
@@ -471,34 +458,42 @@ def calculate_transects(target_start_lat, target_start_lon, target_end_lat, targ
         n_vertices_nextToStartVertex = np.unique(ds.verticesOnEdge.isel(nEdges = np.int32(xr_edgesOnStartVertex)))
         xr_vertices_nextToStartVertex = n_to_xr_idx(n_vertices_nextToStartVertex)
         # print(xr_vertices_nextToStartVertex)
+        ### print('possible vertices to move to are ', xr_vertices_nextToStartVertex)
     
         used_vertices = np.union1d(start_vertices, xr_start_vertex)
         
         xr_vertices_nextToStartVertex_Use = np.delete(xr_vertices_nextToStartVertex, np.where(np.isin(xr_vertices_nextToStartVertex, used_vertices)))
+        ### print('excluding the start vertex, the next vertices we can move to are' , xr_vertices_nextToStartVertex_Use)
         # print(xr_vertices_nextToStartVertex_Use)
         # calculate the distance from these new vertices to the desired end point
             # retrieve the lat and lon of the vertex
-        ds_vertices_nextLatLon = ds[['lonVertex','latVertex']].where(ds.nVertices.isin(xr_vertices_nextToStartVertex_Use))
-        ds_vertices_nextLatLon['lonVertex'] = ds_vertices_nextLatLon.lonVertex * 180 / np.pi
-        ds_vertices_nextLatLon['latVertex'] = ds_vertices_nextLatLon.latVertex * 180 / np.pi
+        # ds_vertices_nextLatLon = ds[['lonVertex','latVertex']].where(ds.nVertices.isin(xr_vertices_nextToStartVertex_Use))
+        ds_vertices_nextLatLon = ds[['lonVertex','latVertex']].isel(nVertices = xr_vertices_nextToStartVertex_Use)
+        ds_vertices_nextLatLon['lonVertex'] = ds_vertices_nextLatLon.lonVertex * 180/np.pi
+        ds_vertices_nextLatLon['latVertex'] = ds_vertices_nextLatLon.latVertex * 180/np.pi
         
         # calculate the distance between the next vertices and the target end
         distance = distance_on_unit_sphere(ds_vertices_nextLatLon.lonVertex, ds_vertices_nextLatLon.latVertex, target_end_lon, target_end_lat)
         
         # select the nVertex that is the shortest distance from the end point
-        xr_chosen_nextVertex = distance.argmin()
+        chosen_nextVertex_arg = distance.argmin()
+        n_chosen_nextVertex = distance.VertexID[chosen_nextVertex_arg]
+        xr_chosen_nextVertex = n_to_xr_idx(n_chosen_nextVertex)
+        ### print('the chosen next vertex to move to is ', np.int32(xr_chosen_nextVertex))
         
         # ---------- UPDATE ARRAYS ----------------
+        
         # store vertices
         start_vertices = np.append(start_vertices, xr_start_vertex)
         next_vertices = np.append(next_vertices, xr_chosen_nextVertex)
     
         xr_start_vertex = xr_chosen_nextVertex 
-
+    
         # break code if the next vertex is the vertex closest to the target end lat and lon
         if xr_chosen_nextVertex == xr_end_vertex:
+            print('broken because reached end vertex')
             break
-
+    
     # ---------- FIND EDGES OF TRANSECT ---------------- 
     # We want to identify the edges that connect the vertices. The vertices are already ordered consecutively (because the transects are built from an algorithm)
     # We will take advantage of this fact using a for loop to extract the edges that are shared between vertices next to each other
@@ -518,9 +513,8 @@ def calculate_transects(target_start_lat, target_start_lon, target_end_lat, targ
         n_transect_edges = np.append(n_transect_edges, shared_edge)
     
     xr_transect_edges = n_to_xr_idx(n_transect_edges)
-
-        
     
+        
     return xr_transect_edges, next_vertices
 
 
@@ -551,6 +545,9 @@ def calculate_transects_multiple_pts(segment_lons,segment_lats,ds):
     all_xr_transect_edges: numpy.ndarray
         xr indices of edges in transect, sorted in consecutive order
     """
+    segment_lons = np.append(segment_lons, segment_lons[0])
+    segment_lats = np.append(segment_lats, segment_lats[0])
+    
     all_xr_transect_vertices = np.array([])
     all_xr_transect_edges = np.array([])
 
@@ -617,8 +614,8 @@ def transect_from_alg_create_nc(test_verts,ds,path,filename,geojson_file_name,ta
     """
     
     # get the lats and lons of the test_verts to use for creation of a geojson file
-    test_verts_lats = ds.latVertex.isel(nVertices = np.int32(test_verts)) * 180 / np.pi #+ 50
-    test_verts_lons = ds.lonVertex.isel(nVertices = np.int32(test_verts)) * 180 / np.pi #+ 360
+    test_verts_lats = ds.latVertex.isel(nVertices = np.int32(test_verts)) * 180/np.pi #+ 50
+    test_verts_lons = ds.lonVertex.isel(nVertices = np.int32(test_verts)) * 180/np.pi #+ 360
     
     test_verts_lonslats = np.array([test_verts_lons,test_verts_lats]).T
     list_test_verts_lonslats = test_verts_lonslats.tolist()
@@ -792,7 +789,7 @@ def calculate_velo_into_mask(ds_transect_edges, xr_cellsOnTransectEdges, global_
                 ds_transect_edges_NaNs.veloIntoMask.loc[dict(xtime_startMonthly = selectedMonth, nEdges = selectedEdge)] = ds_transect_edges_NaNs.timeMonthly_avg_normalVelocity.loc[dict(xtime_startMonthly = selectedMonth, nEdges = selectedEdge)] * -1
     
             elif cellsOnSelectedEdge.isel(TWO=1).isin(xr_cells_inside): # if B is inside the mask
-                ds_transect_edges_NaNs.veloIntoMask.loc[dict(xtime_startMonthly = selectedMonth, nEdges = selectedEdge)] = ds_transect_edges_NaNs.timeMonthly_avg_normalVelocity.loc[dict(xtime_startMonthly = selectedMonth, nEdges = selectedEdge)] * 1
+                ds_transect_edges_NaNs.veloIntoMask.loc[dict(xtime_startMonthly = selectedMonth, nEdges = selectedEdge)] = ds_transect_edges_NaNs.timeMonthly_avg_normalVelocity.loc[dict(xtime_startMonthly = selectedMonth, nEdges = selectedEdge)] * 180/np.pi
 
     return ds_transect_edges_NaNs
 
