@@ -416,7 +416,7 @@ def calculate_transects(target_start_lat, target_start_lon, target_end_lat, targ
     # of all of the points, find the vertex that is closest to the desired start point
     dist_to_start = distance_on_unit_sphere(ds.lonVertex * 180/np.pi, ds.latVertex * 180/np.pi, target_start_lon, target_start_lat)
     xr_start_vertex = dist_to_start.argmin()
-    print('very first start vertex is ', np.int32(xr_start_vertex))
+    ### print('very first start vertex is ', np.int32(xr_start_vertex))
     n_start_vertex = xr_to_n_idx(xr_start_vertex)
     
     start_lon = ds.isel(nVertices = xr_start_vertex).lonVertex * 180/np.pi
@@ -427,7 +427,7 @@ def calculate_transects(target_start_lat, target_start_lon, target_end_lat, targ
     
     # get the vertex closest to the target end lat and lon
     xr_end_vertex = dist_to_end.argmin()
-    print('xr_end_vertex is ', np.int32(xr_end_vertex))
+    ### print('xr_end_vertex is ', np.int32(xr_end_vertex))
     end_lon = ds.isel(nVertices = xr_end_vertex).lonVertex * 180/np.pi
     end_lat = ds.isel(nVertices = xr_end_vertex).latVertex * 180/np.pi
     
@@ -562,9 +562,9 @@ def calculate_transects_multiple_pts(segment_lons,segment_lats,ds):
         
         xr_transect_edges_segment, xr_next_vertices = calculate_transects(target_start_lat, target_start_lon, target_end_lat, target_end_lon, ds)
 
-        # update all_xr_transect_ arrays
-        all_xr_transect_vertices = np.concatenate((all_xr_transect_vertices, xr_next_vertices))
-        all_xr_transect_edges = np.concatenate((all_xr_transect_edges, xr_transect_edges_segment))
+        # update all_xr_transect_ arrays and remove the last point (can't have the same first and last points in a geojson geometry)
+        all_xr_transect_vertices = np.concatenate((all_xr_transect_vertices, xr_next_vertices))#[:-1]
+        all_xr_transect_edges = np.concatenate((all_xr_transect_edges, xr_transect_edges_segment))#[:-1]
 
     return all_xr_transect_edges, all_xr_transect_vertices
         
