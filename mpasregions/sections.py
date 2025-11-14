@@ -447,7 +447,10 @@ def calculate_transects(target_start_lat, target_start_lon, target_end_lat, targ
         count += 1
         ### print(count)
         # get the edges attached to the start vertex
-        n_edgesOnStartVertex = ds.edgesOnVertex.isel(nVertices = xr_start_vertex)
+        print(np.int32(xr_start_vertex))
+        n_edgesOnStartVertex_raw = ds.edgesOnVertex.isel(nVertices = xr_start_vertex) # a zero in this array (in n IDs) means there is a nan in this location
+        n_edgesOnStartVertex = n_edgesOnStartVertex_raw[n_edgesOnStartVertex_raw >0]
+        # n_edgesOnStartVertex = ds.edgesOnVertex.isel(nVertices = xr_start_vertex)
         xr_edgesOnStartVertex = n_to_xr_idx(n_edgesOnStartVertex)
         ### print('edges attached to start vertex ', np.int32(xr_start_vertex), ' are ', xr_edgesOnStartVertex)
         
@@ -458,7 +461,7 @@ def calculate_transects(target_start_lat, target_start_lon, target_end_lat, targ
         n_vertices_nextToStartVertex = np.unique(ds.verticesOnEdge.isel(nEdges = np.int32(xr_edgesOnStartVertex)))
         xr_vertices_nextToStartVertex = n_to_xr_idx(n_vertices_nextToStartVertex)
         # print(xr_vertices_nextToStartVertex)
-        ### print('possible vertices to move to are ', xr_vertices_nextToStartVertex)
+        print('possible vertices to move to are ', xr_vertices_nextToStartVertex)
     
         used_vertices = np.union1d(start_vertices, xr_start_vertex)
         
@@ -479,7 +482,7 @@ def calculate_transects(target_start_lat, target_start_lon, target_end_lat, targ
         chosen_nextVertex_arg = distance.argmin()
         n_chosen_nextVertex = distance.VertexID[chosen_nextVertex_arg]
         xr_chosen_nextVertex = n_to_xr_idx(n_chosen_nextVertex)
-        ### print('the chosen next vertex to move to is ', np.int32(xr_chosen_nextVertex))
+        print('the chosen next vertex to move to is ', np.int32(xr_chosen_nextVertex))
         
         # ---------- UPDATE ARRAYS ----------------
         
@@ -563,8 +566,13 @@ def calculate_transects_multiple_pts(segment_lons,segment_lats,ds):
         xr_transect_edges_segment, xr_next_vertices = calculate_transects(target_start_lat, target_start_lon, target_end_lat, target_end_lon, ds)
 
         # update all_xr_transect_ arrays and remove the last point (can't have the same first and last points in a geojson geometry)
-        all_xr_transect_vertices = np.concatenate((all_xr_transect_vertices, xr_next_vertices))#[:-1]
-        all_xr_transect_edges = np.concatenate((all_xr_transect_edges, xr_transect_edges_segment))#[:-1]
+        # the last element of this array is the target end point. And the first element of the next array is the target end point that is now the start point
+        # Remove the last point of the array to prevent duplicates
+
+        all_xr_transect_vertices = np.concatenate((all_xr_transect_vertices, xr_next_vertices[:-1]))
+        all_xr_transect_edges = np.concatenate((all_xr_transect_edges, xr_transect_edges_segment))
+
+    # you don't need to add back the last point (which is now the first point; closed loop) because geojson file does not allow for duplicate points
 
     return all_xr_transect_edges, all_xr_transect_vertices
         
