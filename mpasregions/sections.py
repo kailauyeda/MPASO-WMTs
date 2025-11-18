@@ -223,6 +223,72 @@ def open_from_mask(ds,path,filename,geojson_file_name, tags, author):
 
 # --------- FUNCTIONS TO GET TRANSECT EDGES AND VERTICES FROM A MASK --------------
 
+def find_transect_edges_and_vertices(ds,mask):
+    """
+    Find vertices and edges that are on the edge of a mask (aka part of the transect). Remove repeated vertices by creating a condition s.t. only edges bordering cells inside the mask are included.
+    
+    Parameters
+    ----------
+    ds: xarray.core.dataset.Dataset
+        Contains information about ocean model grid coordinates.
+    
+    mask: xarray.core.dataset.Dataset
+        Contains RegionCellMasks created from mpas_tools compute_mpas_region_masks
+
+    Returns
+    -------
+    xr_mask_transect_edges: numpy.ndarray
+        Unsorted array of edge xr_indices defining the transect
+
+    xr_mask_transect_vertices: numpy.ndarray
+        Unsorted array of vertex xr_indices defining the transect
+    """
+    # collect all cells, vertices, and edges in the mask
+    xr_cells_inside, xr_edges_inside, xr_vertices_inside = xr_inside_mask_info(ds,mask)
+    
+    
+    # ----- MASK EDGES ON LAND -----
+    # find edges where one of the cells on edge is land
+    all_edgesOnLand_TWO0 = ds.nEdges.where(np.isin(ds.cellsOnEdge.isel(TWO=0),0))
+    all_edgesOnLand_TWO1 = ds.nEdges.where(np.isin(ds.cellsOnEdge.isel(TWO=1),0))
+    all_edgesOnLand = np.union1d(all_edgesOnLand_TWO0, all_edgesOnLand_TWO1)
+    
+    # then get all the edges inside the mask
+    # xr_edges_inside
+    
+    # take the intersection of edges inside the mask and all edges on land
+    # give mask edges on land
+    mask_edgesOnLand = np.intersect1d(xr_edges_inside, all_edgesOnLand)
+    
+    # ----- MASK EDGES ON OPEN OCEAN -----
+    # identify cells NOT in the mask
+    xr_cells_outside = ds.nCells[~np.isin(ds.nCells, xr_cells_inside)]
+    n_cells_outside = xr_to_n_idx(xr_cells_outside)
+    
+    n_cells_inside = xr_to_n_idx(xr_cells_inside)
+    
+    # condition where one of the cells is inside the mask and the other is outside the mask
+    # this gives cells on the border of the mask
+    
+    condition = (np.isin(ds.cellsOnEdge.isel(TWO=0),n_cells_outside)) & (np.isin(ds.cellsOnEdge.isel(TWO=1),n_cells_inside)) | \
+            (np.isin(ds.cellsOnEdge.isel(TWO=0),n_cells_inside)) & (np.isin(ds.cellsOnEdge.isel(TWO=1), n_cells_outside))
+    
+    all_edgesOnMask = ds.nEdges.where(condition)
+    
+    # take the intersection of edges that border the mask and the edges inside the mask 
+    # (this prevents edges on the border outside of the mask from being counted)
+    mask_edgesOnOcean = np.intersect1d(xr_edges_inside, all_edgesOnMask)
+    
+    # combine the edges on land in the mask with the edges of the mask in the open ocean
+    xr_mask_transect_edges = np.union1d(mask_edgesOnLand, mask_edgesOnOcean)
+    
+    # ----------- FIND ALL VERTICES ON EDGES -----------
+    n_mask_transect_vertices = ds.verticesOnEdge.isel(nEdges = np.int32(xr_mask_transect_edges))
+    xr_mask_transect_vertices = np.unique(n_to_xr_idx(n_mask_transect_vertices))
+
+    return xr_mask_transect_edges, xr_mask_transect_vertices
+
+
 def sorted_transect_edges_and_vertices(ds, xr_mask_transect_edges, xr_mask_transect_vertices):
     """
     Given transect edges and vertices, sort them to be in consecutive order.
@@ -299,6 +365,7 @@ def sorted_transect_edges_and_vertices(ds, xr_mask_transect_edges, xr_mask_trans
 
     return np.int32(next_edges), np.int32(next_vertices)
     
+    
 def find_and_sort_transect_edges_and_vertices(ds,mask):
     """
     Find vertices and edges that are on the edge of a mask (aka part of the transect). Then sort them to be in consecutive order.
@@ -320,47 +387,8 @@ def find_and_sort_transect_edges_and_vertices(ds,mask):
     next_vertices: numpy.ndarray
         xr indices of the edges that define a transect now sorted to be in consecutive order    
     """
-    # collect all cells, vertices, and edges in the mask
-    xr_cells_inside, xr_edges_inside, xr_vertices_inside = xr_inside_mask_info(ds,mask)
-    
-    # ----- MASK EDGES ON LAND -----
-    # find edges where one of the cells on edge is land
-    all_edgesOnLand_TWO0 = ds.nEdges.where(np.isin(ds.cellsOnEdge.isel(TWO=0),0))
-    all_edgesOnLand_TWO1 = ds.nEdges.where(np.isin(ds.cellsOnEdge.isel(TWO=1),0))
-    all_edgesOnLand = np.union1d(all_edgesOnLand_TWO0, all_edgesOnLand_TWO1)
-    
-    # then get all the edges inside the mask
-    # xr_edges_inside
-    
-    # take the intersection of edges inside the mask and all edges on land
-    # give mask edges on land
-    mask_edgesOnLand = np.intersect1d(xr_edges_inside, all_edgesOnLand)
-    
-    # ----- MASK EDGES ON OPEN OCEAN -----
-    # identify cells NOT in the mask
-    xr_cells_outside = ds.nCells[~np.isin(ds.nCells, xr_cells_inside)]
-    n_cells_outside = xr_to_n_idx(xr_cells_outside)
-    
-    n_cells_inside = xr_to_n_idx(xr_cells_inside)
-    
-    # condition where one of the cells is inside the mask and the other is outside the mask
-    # this gives cells on the border of the mask
-    
-    condition = (np.isin(ds.cellsOnEdge.isel(TWO=0),n_cells_outside)) & (np.isin(ds.cellsOnEdge.isel(TWO=1),n_cells_inside)) | \
-            (np.isin(ds.cellsOnEdge.isel(TWO=0),n_cells_inside)) & (np.isin(ds.cellsOnEdge.isel(TWO=1), n_cells_outside))
-    
-    all_edgesOnMask = ds.nEdges.where(condition)
-    
-    # take the intersection of edges that border the mask and the edges inside the mask 
-    # (this prevents edges on the border outside of the mask from being counted)
-    mask_edgesOnOcean = np.intersect1d(xr_edges_inside, all_edgesOnMask)
-    
-    # combine the edges on land in the mask with the edges of the mask in the open ocean
-    xr_mask_transect_edges = np.union1d(mask_edgesOnLand, mask_edgesOnOcean)
-    
-    # ----------- FIND ALL VERTICES ON EDGES -----------
-    n_mask_transect_vertices = ds.verticesOnEdge.isel(nEdges = np.int32(xr_mask_transect_edges))
-    xr_mask_transect_vertices = np.unique(n_to_xr_idx(n_mask_transect_vertices))
+    xr_mask_transect_edges, xr_mask_transect_vertices = find_transect_edges_and_vertices(ds,mask)
+    print(xr_mask_transect_edges)
     
     next_edges, next_vertices = sorted_transect_edges_and_vertices(ds, xr_mask_transect_edges, xr_mask_transect_vertices)
 
@@ -407,7 +435,7 @@ def modify_geojson(path, filename, geojson_file_name, tags, author):
 # --------- FUNCTIONS TO GET TRANSECT EDGES AND VERTICES FROM AN ALGORITHM --------------
 
 # function to calculate transect given a target start point, target end point, and ds
-def calculate_transects(target_start_lat, target_start_lon, target_end_lat, target_end_lon, ds):
+def calculate_transects(target_start_lat, target_start_lon, target_end_lat, target_end_lon, ds, start_vertices=None):
     # ---------- INITIATE START VERTEX ----------------
     # of these transect cells, select the one that is closest to the desired starting point.
     # desired values in deg
@@ -427,7 +455,7 @@ def calculate_transects(target_start_lat, target_start_lon, target_end_lat, targ
     
     # get the vertex closest to the target end lat and lon
     xr_end_vertex = dist_to_end.argmin()
-    ### print('xr_end_vertex is ', np.int32(xr_end_vertex))
+    print('xr_end_vertex is ', np.int32(xr_end_vertex))
     end_lon = ds.isel(nVertices = xr_end_vertex).lonVertex * 180/np.pi
     end_lat = ds.isel(nVertices = xr_end_vertex).latVertex * 180/np.pi
     
@@ -438,16 +466,22 @@ def calculate_transects(target_start_lat, target_start_lon, target_end_lat, targ
     distance = distance_on_unit_sphere(start_lon, start_lat, target_end_lon, target_end_lat)
     
     # ---------- FIND NEXT VERTEX ----------------
-    start_vertices = np.array([])
+    if start_vertices is None:
+        start_vertices = np.array([])
+        print('starting first segment.')
+    else:
+        start_vertices
+        print('starting next segment. already used ', len(start_vertices), ' vertices')
+        
     next_vertices = np.array([])
     
     count=0
     
     while distance.min() > 10: #10000:
         count += 1
-        ### print(count)
+        
         # get the edges attached to the start vertex
-        print(np.int32(xr_start_vertex))
+        ### print(np.int32(xr_start_vertex))
         n_edgesOnStartVertex_raw = ds.edgesOnVertex.isel(nVertices = xr_start_vertex) # a zero in this array (in n IDs) means there is a nan in this location
         n_edgesOnStartVertex = n_edgesOnStartVertex_raw[n_edgesOnStartVertex_raw >0]
         # n_edgesOnStartVertex = ds.edgesOnVertex.isel(nVertices = xr_start_vertex)
@@ -461,9 +495,11 @@ def calculate_transects(target_start_lat, target_start_lon, target_end_lat, targ
         n_vertices_nextToStartVertex = np.unique(ds.verticesOnEdge.isel(nEdges = np.int32(xr_edgesOnStartVertex)))
         xr_vertices_nextToStartVertex = n_to_xr_idx(n_vertices_nextToStartVertex)
         # print(xr_vertices_nextToStartVertex)
-        print('possible vertices to move to are ', xr_vertices_nextToStartVertex)
+        ### print('possible vertices to move to are ', xr_vertices_nextToStartVertex)
     
-        used_vertices = np.union1d(start_vertices, xr_start_vertex)
+        # used_vertices = np.union1d(start_vertices, xr_start_vertex)
+        used_vertices = np.append(start_vertices, xr_start_vertex)
+        print('vertices used are' , used_vertices)
         
         xr_vertices_nextToStartVertex_Use = np.delete(xr_vertices_nextToStartVertex, np.where(np.isin(xr_vertices_nextToStartVertex, used_vertices)))
         ### print('excluding the start vertex, the next vertices we can move to are' , xr_vertices_nextToStartVertex_Use)
@@ -477,12 +513,13 @@ def calculate_transects(target_start_lat, target_start_lon, target_end_lat, targ
         
         # calculate the distance between the next vertices and the target end
         distance = distance_on_unit_sphere(ds_vertices_nextLatLon.lonVertex, ds_vertices_nextLatLon.latVertex, target_end_lon, target_end_lat)
-        
+
+        ### print('minimum distance is ', distance.min().values)
         # select the nVertex that is the shortest distance from the end point
         chosen_nextVertex_arg = distance.argmin()
         n_chosen_nextVertex = distance.VertexID[chosen_nextVertex_arg]
         xr_chosen_nextVertex = n_to_xr_idx(n_chosen_nextVertex)
-        print('the chosen next vertex to move to is ', np.int32(xr_chosen_nextVertex))
+        ### print('the chosen next vertex to move to is ', np.int32(xr_chosen_nextVertex))
         
         # ---------- UPDATE ARRAYS ----------------
         
@@ -562,8 +599,11 @@ def calculate_transects_multiple_pts(segment_lons,segment_lats,ds):
 
         target_end_lat = segment_lats[i+1]
         target_end_lon = segment_lons[i+1]
-        
-        xr_transect_edges_segment, xr_next_vertices = calculate_transects(target_start_lat, target_start_lon, target_end_lat, target_end_lon, ds)
+
+        if i==0:
+            xr_transect_edges_segment, xr_next_vertices = calculate_transects(target_start_lat, target_start_lon, target_end_lat, target_end_lon, ds)
+        else:
+            xr_transect_edges_segment, xr_next_vertices = calculate_transects(target_start_lat, target_start_lon, target_end_lat, target_end_lon, ds, all_xr_transect_vertices)
 
         # update all_xr_transect_ arrays and remove the last point (can't have the same first and last points in a geojson geometry)
         # the last element of this array is the target end point. And the first element of the next array is the target end point that is now the start point
@@ -797,7 +837,7 @@ def calculate_velo_into_mask(ds_transect_edges, xr_cellsOnTransectEdges, global_
                 ds_transect_edges_NaNs.veloIntoMask.loc[dict(xtime_startMonthly = selectedMonth, nEdges = selectedEdge)] = ds_transect_edges_NaNs.timeMonthly_avg_normalVelocity.loc[dict(xtime_startMonthly = selectedMonth, nEdges = selectedEdge)] * -1
     
             elif cellsOnSelectedEdge.isel(TWO=1).isin(xr_cells_inside): # if B is inside the mask
-                ds_transect_edges_NaNs.veloIntoMask.loc[dict(xtime_startMonthly = selectedMonth, nEdges = selectedEdge)] = ds_transect_edges_NaNs.timeMonthly_avg_normalVelocity.loc[dict(xtime_startMonthly = selectedMonth, nEdges = selectedEdge)] * 180/np.pi
+                ds_transect_edges_NaNs.veloIntoMask.loc[dict(xtime_startMonthly = selectedMonth, nEdges = selectedEdge)] = ds_transect_edges_NaNs.timeMonthly_avg_normalVelocity.loc[dict(xtime_startMonthly = selectedMonth, nEdges = selectedEdge)] * 1
 
     return ds_transect_edges_NaNs
 
