@@ -435,7 +435,7 @@ def modify_geojson(path, filename, geojson_file_name, tags, author):
 # --------- FUNCTIONS TO GET TRANSECT EDGES AND VERTICES FROM AN ALGORITHM --------------
 
 # function to calculate transect given a target start point, target end point, and ds
-def calculate_transects(target_start_lat, target_start_lon, target_end_lat, target_end_lon, ds, start_vertices=None):
+def calculate_transects(target_start_lat, target_start_lon, target_end_lat, target_end_lon, ds):
     # ---------- INITIATE START VERTEX ----------------
     # of these transect cells, select the one that is closest to the desired starting point.
     # desired values in deg
@@ -466,13 +466,13 @@ def calculate_transects(target_start_lat, target_start_lon, target_end_lat, targ
     distance = distance_on_unit_sphere(start_lon, start_lat, target_end_lon, target_end_lat)
     
     # ---------- FIND NEXT VERTEX ----------------
-    if start_vertices is None:
-        start_vertices = np.array([])
-        print('starting first segment.')
-    else:
-        start_vertices
-        print('starting next segment. already used ', len(start_vertices), ' vertices')
-        
+    # if start_vertices is None:
+    #     start_vertices = np.array([])
+    #     print('starting first segment.')
+    # else:
+    #     start_vertices
+    #     print('starting next segment. already used ', len(start_vertices), ' vertices')
+    start_vertices = np.array([])
     next_vertices = np.array([])
     
     count=0
@@ -499,7 +499,7 @@ def calculate_transects(target_start_lat, target_start_lon, target_end_lat, targ
     
         # used_vertices = np.union1d(start_vertices, xr_start_vertex)
         used_vertices = np.append(start_vertices, xr_start_vertex)
-        print('vertices used are' , used_vertices)
+        ### print('vertices used are' , used_vertices)
         
         xr_vertices_nextToStartVertex_Use = np.delete(xr_vertices_nextToStartVertex, np.where(np.isin(xr_vertices_nextToStartVertex, used_vertices)))
         ### print('excluding the start vertex, the next vertices we can move to are' , xr_vertices_nextToStartVertex_Use)
@@ -600,10 +600,7 @@ def calculate_transects_multiple_pts(segment_lons,segment_lats,ds):
         target_end_lat = segment_lats[i+1]
         target_end_lon = segment_lons[i+1]
 
-        if i==0:
-            xr_transect_edges_segment, xr_next_vertices = calculate_transects(target_start_lat, target_start_lon, target_end_lat, target_end_lon, ds)
-        else:
-            xr_transect_edges_segment, xr_next_vertices = calculate_transects(target_start_lat, target_start_lon, target_end_lat, target_end_lon, ds, all_xr_transect_vertices)
+        xr_transect_edges_segment, xr_next_vertices = calculate_transects(target_start_lat, target_start_lon, target_end_lat, target_end_lon, ds)
 
         # update all_xr_transect_ arrays and remove the last point (can't have the same first and last points in a geojson geometry)
         # the last element of this array is the target end point. And the first element of the next array is the target end point that is now the start point
@@ -614,7 +611,7 @@ def calculate_transects_multiple_pts(segment_lons,segment_lats,ds):
 
     # you don't need to add back the last point (which is now the first point; closed loop) because geojson file does not allow for duplicate points
 
-    return all_xr_transect_edges, all_xr_transect_vertices
+    return np.int32(all_xr_transect_edges), np.int32(all_xr_transect_vertices)
         
 
 # get a .nc and .geojson mask from the region bordered by the transects created by the algorithm
