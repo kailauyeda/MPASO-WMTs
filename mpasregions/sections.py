@@ -286,7 +286,7 @@ def find_transect_edges_and_vertices(ds,mask):
     n_mask_transect_vertices = ds.verticesOnEdge.isel(nEdges = np.int32(xr_mask_transect_edges))
     xr_mask_transect_vertices = np.unique(n_to_xr_idx(n_mask_transect_vertices))
 
-    return xr_mask_transect_edges, xr_mask_transect_vertices
+    return np.int32(xr_mask_transect_edges), np.int32(xr_mask_transect_vertices)
 
 
 def sorted_transect_edges_and_vertices(ds, xr_mask_transect_edges, xr_mask_transect_vertices):
@@ -388,7 +388,7 @@ def find_and_sort_transect_edges_and_vertices(ds,mask):
         xr indices of the edges that define a transect now sorted to be in consecutive order    
     """
     xr_mask_transect_edges, xr_mask_transect_vertices = find_transect_edges_and_vertices(ds,mask)
-    print(xr_mask_transect_edges)
+    ### print(xr_mask_transect_edges)
     
     next_edges, next_vertices = sorted_transect_edges_and_vertices(ds, xr_mask_transect_edges, xr_mask_transect_vertices)
 
