@@ -334,8 +334,40 @@ def sorted_transect_edges_and_vertices(ds, xr_mask_transect_edges, xr_mask_trans
         xr_edgesOnStartVertex = n_to_xr_idx(n_edgesOnStartVertex)
         
         xr_nextEdge = np.intersect1d(xr_edgesOnStartVertex, remaining_edges)
-        if xr_nextEdge.size==0:
+        if xr_nextEdge.size==0 and len(remaining_edges)==0:
             break
+        if xr_nextEdge.size==0 and len(remaining_edges)>0:
+            print('switching transects at ', counter+1)
+            # find the closest vertex in remaining_vertices
+            
+            current_vertex_lon = np.rad2deg(ds.lonVertex.isel(nVertices = xr_startVertex)).values
+            current_vertex_lat = np.rad2deg(ds.latVertex.isel(nVertices = xr_startVertex)).values
+        
+            remaining_vertices_lons = np.rad2deg(ds.lonVertex.isel(nVertices = remaining_vertices))
+            remaining_vertices_lats = np.rad2deg(ds.latVertex.isel(nVertices = remaining_vertices))
+            distances_from_current_vertex = distance_on_unit_sphere(remaining_vertices_lons, remaining_vertices_lats, current_vertex_lon, current_vertex_lat)
+            min_distance_idx = distances_from_current_vertex.argmin()
+            xr_nextVertex = distances_from_current_vertex.isel(nVertices = min_distance_idx).nVertices.values
+    
+            # find the edges that are on this vertex
+            xr_nextEdges = n_to_xr_idx(ds.edgesOnVertex.isel(nVertices = xr_nextVertex))
+    
+            # find the edges that are remaining
+            xr_nextEdgesOnTransect = np.intersect1d(xr_nextEdges, remaining_edges)
+    
+            if len(xr_nextEdgesOnTransect) == 0:
+                xr_nextEdge = xr_nextEdgesOnTransect
+            else:
+                xr_nextEdge = xr_nextEdgesOnTransect[0]
+    
+            # update arrays
+            next_edges = np.append(next_edges, xr_nextEdge)
+            next_vertices = np.append(next_vertices, xr_nextVertex)
+            remaining_edges = remaining_edges[remaining_edges != xr_nextEdge]
+            remaining_vertices = remaining_vertices[remaining_vertices!= xr_nextVertex]
+            xr_startVertex = xr_nextVertex
+            counter += 1
+            
         else:
         
             # get the vertex that is not the previous vertex
@@ -356,12 +388,11 @@ def sorted_transect_edges_and_vertices(ds, xr_mask_transect_edges, xr_mask_trans
             remaining_vertices = remaining_vertices[remaining_vertices != xr_nextVertex]
             xr_startVertex = xr_nextVertex
             counter +=1
-    
-            
-    
+
     # add the start vertex (which was used twice as the start and end) onto the end as well
-    next_vertices = np.append(next_vertices,n_to_xr_idx(n_startVertex)) 
-    next_edges = np.append(next_edges, np.int32(xr_mask_transect_edges[0]))
+    # I actually don't understand why we would do this
+    # next_vertices = np.append(next_vertices,n_to_xr_idx(n_startVertex)) 
+    # next_edges = np.append(next_edges, np.int32(xr_mask_transect_edges[0]))
 
     return np.int32(next_edges), np.int32(next_vertices)
     
