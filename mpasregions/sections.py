@@ -148,12 +148,15 @@ def distance_on_unit_sphere(lon1, lat1, lon2, lat2, R=6.371e6, method="vincenty"
 
 def open_transect_from_alg(ds, lats, lons, path, filename, geojson_file_name, tags, author):
     """
-    A less lazy attempt to open transect from alg files
+    A less lazy attempt to open transect from alg files.
+
     Parameters:
     ----------
 
     Returns:
     -------
+    alg_edges : 
+        Sorted edges that border the cells inside a mask created from a transect algorithm
     """
     # get edge and vertex indices   
     region_lats = np.append(lats, lats[0])
@@ -486,7 +489,7 @@ def calculate_transects(target_start_lat, target_start_lon, target_end_lat, targ
     
     # get the vertex closest to the target end lat and lon
     xr_end_vertex = dist_to_end.argmin()
-    print('xr_end_vertex is ', np.int32(xr_end_vertex))
+    ### print('xr_end_vertex is ', np.int32(xr_end_vertex))
     end_lon = ds.isel(nVertices = xr_end_vertex).lonVertex * 180/np.pi
     end_lat = ds.isel(nVertices = xr_end_vertex).latVertex * 180/np.pi
     
@@ -731,7 +734,7 @@ def transect_from_alg_create_nc(test_verts,ds,path,filename,geojson_file_name,ta
         
         with open(path + f'{alg_filename}.geojson','w') as f:
             geojson.dump(transect_from_alg, f, indent=2)
-
+        print('geojson file created')
     # ----------- CREATE NETCDF FILE -----------
     
     # check if the .nc mask file created from a transect algorithm exists
@@ -772,23 +775,32 @@ def format_transect_data(ds,edges):
 
     Returns:
     -------
-    xr_cellsOnTransectEdges: xarray.core.dataarray.DataArray
-        dataarray of 'cellsOnEdge' datavariable with coordinates (nEdges,TWO) such that the only nEdges included are in the transect (not the entire global dataset)
+    ds_transect_edges.nCells : xarray.core.dataarray.DataArray
+        dataarray created from'cellsOnEdge' datavariable with coordinates (nEdges,TWO) such that the only nEdges included are in the transect (not the entire global dataset)
+        land cells are represented by nans
 
     ds_transect_edges: xarray.core.dataset.Dataset
         simulation dataset with coordinates nEdges such that the only nEdges included are in the transect (not the entire global dataset)
     """
-    # get only the cells on transect edges
     xr_cellsOnTransectEdges = n_to_xr_idx(ds.cellsOnEdge.isel(nEdges = edges))
-    ds_transect_edges = ds.isel(nEdges = edges, nCells = xr_cellsOnTransectEdges)
-
+    
+    # create mask where land cells (nans) are zeros
+    nans_cellMask = ds.cellsOnEdge.isel(nEdges = edges) == 0
+    
+    # conduct an isel
+    ds_transect_edges_raw = ds.isel(nEdges = edges, nCells = xr_cellsOnTransectEdges)
+    
+    # apply the nans_cellMask (where (identified by edges) the cellsOnEdge should be 0 but is actually currently -1)
+    ds_transect_edges = ds_transect_edges_raw.where(~nans_cellMask)
+    ds_transect_edges['nCells'] = ds_transect_edges.nCells.where(~nans_cellMask)
+    
     # make a datavariable that holds the order of the nEdges in the transect
     ds_transect_edges['transect_edgesOrdered'] = xr.DataArray(np.arange(0,edges.size),dims='nEdges')
-
+    
     # we now have a dataset with cells and edges that are bordering the transect surrounding the mask
     ds_transect_edges = ds_transect_edges.assign_coords({'transect_edgesOrdered': ds_transect_edges.transect_edgesOrdered})
 
-    return xr_cellsOnTransectEdges, ds_transect_edges
+    return ds_transect_edges.nCells, ds_transect_edges
 
 
 def calculate_velo_into_mask(ds_transect_edges, xr_cellsOnTransectEdges, global_ds, mask, edges):
