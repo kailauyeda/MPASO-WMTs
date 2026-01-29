@@ -762,7 +762,9 @@ def transect_from_alg_create_nc(test_verts,ds,path,filename,geojson_file_name,ta
 
 def format_transect_data(ds,edges):
     """
-    Reformat data to keep track of edge order for plotting purposes
+    Reformat data to keep track of edge order for plotting purposes. Fix land cell mask code to only apply mask to variables with coordinates (nCells). 
+    ## Note: this is hard-coded to then add back normalVelocity(nEdges) because the land mask is applied to all of the datavariables, regardless of coordinates. 
+    ## Note: this means, for larger datasets, you will have to find a way to add back all other datavariables that have nEdge coordinates
 
     Parameters:
     ----------
@@ -794,25 +796,33 @@ def format_transect_data(ds,edges):
     ds_transect_edges = ds_transect_edges_raw.where(~nans_cellMask)
     ds_transect_edges['nCells'] = ds_transect_edges.nCells.where(~nans_cellMask)
     
+    # applying the nCells mask messes up the format of the normalVelocity datavariable that depends on nEdges
+    # to fix this, preserve the normalVelocity dataset. Then add it back to the new dataset
+    nEdge_timeMonthly_avg_normalVelocity_ds = ds_transect_edges_raw.timeMonthly_avg_normalVelocity
+    ds_transect_edges['timeMonthly_avg_normalVelocity'] = nEdge_timeMonthly_avg_normalVelocity_ds
+    
     # make a datavariable that holds the order of the nEdges in the transect
     ds_transect_edges['transect_edgesOrdered'] = xr.DataArray(np.arange(0,edges.size),dims='nEdges')
     
     # we now have a dataset with cells and edges that are bordering the transect surrounding the mask
     ds_transect_edges = ds_transect_edges.assign_coords({'transect_edgesOrdered': ds_transect_edges.transect_edgesOrdered})
-
+    
     return ds_transect_edges.nCells, ds_transect_edges
 
-
-def calculate_velo_into_mask(ds_transect_edges, xr_cellsOnTransectEdges, global_ds, mask, edges):
+def calculate_velo_into_mask(ds_transect_edges, xr_cellsOnTransectEdges, global_ds, mask, edges, datavariable='timeMonthly_avg_normalVelocity'):
     """
     Calculate the normal velocity into the mask
     Positive --> into the mask
     Negative --> out of the mask
+    
     Parameters
     ----------
     ds_transect_edges: xarray.core.dataset.Dataset
         dataset containing normal velocities to nEdges with coordinates nEdges such that the only nEdges included are in the transect (not the entire global dataset)
 
+    datavariable: str
+        string denoting a datavariable in the ds_transect_edges dataset. datavariable must sit on nEdges. We will calculate the flux of this datavariable in calculate_transport_into_mask.
+    
     xr_cellsOnTransectEdges: xarray.core.dataarray.DataArray
         dataarray of 'cellsOnEdge' datavariable with coordinates (nEdges,TWO) such that the only nEdges included are in the transect (not the entire global dataset)
 
@@ -832,55 +842,37 @@ def calculate_velo_into_mask(ds_transect_edges, xr_cellsOnTransectEdges, global_
         
     """
 
-    # make land cells that have no value (nCells = -1) NaNs
-    xr_cellsOnTransectEdges_minus1 = ds_transect_edges.where(xr_cellsOnTransectEdges >= 0)
-    
-    # make land cells that are given a small datavariable to represent land NaNs
-    # keep cells where the layer thickness is not a nan (would be a NaN from previous operation)
-    # keep cells where the layer thickness > 0 
-    # by applying the mask based on layerThickness, all other datavariables will also have nans in the same location
-    # (layerThickness = 0 tells us there is land at that location)
-    
-    ocean_only = (~np.isnan(ds_transect_edges.timeMonthly_avg_layerThickness)) & (ds_transect_edges.timeMonthly_avg_layerThickness > 0)
-    ds_transect_edges_NaNs = xr_cellsOnTransectEdges_minus1.where(ocean_only)
-
-    #########    
-    ds_transect_edges_NaNs['veloIntoMask'] = ds_transect_edges_NaNs.timeMonthly_avg_normalVelocity * 0
-    
-    # .isel the mesh to only get the sorted edges on the transect (identified already in dss_transect_edges)
-    # global_ds_transect_edges = ds_transect_edges.isel(nEdges = ds_transect_edges.nEdges)
+    ds_transect_edges['veloIntoMask'] = xr.zeros_like(ds_transect_edges[datavariable])
     
     # find transect edges that border land using the cellsOnEdge variable from the mesh
-    xr_transect_edgesOnLand_TWO0 = ds_transect_edges_NaNs.nEdges.where(np.isin(ds_transect_edges.cellsOnEdge.isel(TWO=0),0))
-    xr_transect_edgesOnLand_TWO1 = ds_transect_edges_NaNs.nEdges.where(np.isin(ds_transect_edges.cellsOnEdge.isel(TWO=1),0))
+    xr_transect_edgesOnLand_TWO0 = ds_transect_edges.nEdges.where(np.isin(ds_transect_edges.cellsOnEdge.isel(TWO=0),0))
+    xr_transect_edgesOnLand_TWO1 = ds_transect_edges.nEdges.where(np.isin(ds_transect_edges.cellsOnEdge.isel(TWO=1),0))
     xr_transect_edgesOnLand = np.union1d(xr_transect_edgesOnLand_TWO0, xr_transect_edgesOnLand_TWO1)
     
     # find transect edges that border ocean (all transect edges NOT bordering land)
     xr_transect_edgesOnOcean = np.setxor1d(edges, xr_transect_edgesOnLand)
     
     # find the cells that lie on the transect open ocean edges
-    n_transect_cellsOnOceanEdges = ds_transect_edges_NaNs.cellsOnEdge
+    n_transect_cellsOnOceanEdges = ds_transect_edges.cellsOnEdge
     xr_transect_cellsOnOceanEdges = n_to_xr_idx(n_transect_cellsOnOceanEdges)
     
     # select all the cells inside the mask
     xr_cells_inside, ignore_xr_edges_inside, ignore_xr_vertices_inside = xr_inside_mask_info(global_ds,mask)
     
-    
     # determine if the normal velocity points into or out of the mask 
     for i in range(0,len(xr_transect_cellsOnOceanEdges)):
-        for j in range(0,len(ds_transect_edges_NaNs.xtime_startMonthly)):
+        for j in range(0,len(ds_transect_edges.xtime_startMonthly)):
             cellsOnSelectedEdge = xr_transect_cellsOnOceanEdges.isel(nEdges = i)
-            selectedEdge = np.int32(ds_transect_edges_NaNs.nEdges.isel(nEdges = i))
-            selectedMonth = ds_transect_edges_NaNs.xtime_startMonthly.isel(xtime_startMonthly=j)
+            selectedEdge = np.int32(ds_transect_edges.nEdges.isel(nEdges = i))
+            selectedMonth = ds_transect_edges.xtime_startMonthly.isel(xtime_startMonthly=j)
     
             if cellsOnSelectedEdge.isel(TWO=0).isin(xr_cells_inside): # if A is inside the mask
-                ds_transect_edges_NaNs.veloIntoMask.loc[dict(xtime_startMonthly = selectedMonth, nEdges = selectedEdge)] = ds_transect_edges_NaNs.timeMonthly_avg_normalVelocity.loc[dict(xtime_startMonthly = selectedMonth, nEdges = selectedEdge)] * -1
+                ds_transect_edges.veloIntoMask.loc[dict(xtime_startMonthly = selectedMonth, nEdges = selectedEdge)] = ds_transect_edges[datavariable].loc[dict(xtime_startMonthly = selectedMonth, nEdges = selectedEdge)] * -1
     
             elif cellsOnSelectedEdge.isel(TWO=1).isin(xr_cells_inside): # if B is inside the mask
-                ds_transect_edges_NaNs.veloIntoMask.loc[dict(xtime_startMonthly = selectedMonth, nEdges = selectedEdge)] = ds_transect_edges_NaNs.timeMonthly_avg_normalVelocity.loc[dict(xtime_startMonthly = selectedMonth, nEdges = selectedEdge)] * 1
+                ds_transect_edges.veloIntoMask.loc[dict(xtime_startMonthly = selectedMonth, nEdges = selectedEdge)] = ds_transect_edges[datavariable].loc[dict(xtime_startMonthly = selectedMonth, nEdges = selectedEdge)] * 1
 
-    return ds_transect_edges_NaNs
-
+    return ds_transect_edges
 
 def calculate_transport_into_mask(ds_transect_edges):
     """
@@ -935,7 +927,7 @@ def transport_in_density_coords(ds_transect_edges, target_coords):
         dataset of transport transformed from (nEdges,nVertLevels) to (nEdges, timeMonthly_avg_potentialDensity_EdgeP1)
     """
 
-    # now that we have transport calculated using an aaverage of the TWO cells sitting on nEdges,
+    # now that we have transport calculated using an average of the TWO cells sitting on nEdges,
     # we can do an ffill to replace all these nans with potentialDensity values of the last ocean cell above them
     # this allows us to do an intperolation followed by an xgcm transform to get transport by density class
     ds_transect_edges['timeMonthly_avg_potentialDensity_Edge'] = ds_transect_edges.timeMonthly_avg_potentialDensity.ffill(dim='nVertLevels',
