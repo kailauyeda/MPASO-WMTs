@@ -809,7 +809,7 @@ def format_transect_data(ds,edges):
     
     return ds_transect_edges.nCells, ds_transect_edges
 
-def calculate_velo_into_mask(ds_transect_edges, xr_cellsOnTransectEdges, global_ds, mask, edges, datavariable='timeMonthly_avg_normalVelocity'):
+def calculate_velo_into_mask(ds_transect_edges, global_ds, mask, edges, datavariable='timeMonthly_avg_normalVelocity'):
     """
     Calculate the normal velocity into the mask
     Positive --> into the mask
@@ -902,6 +902,10 @@ def calculate_transport_into_mask(ds_transect_edges):
 
     transport = transect_area * ds_transect_edges.veloIntoMask / 10**6
     ds_transect_edges['transportIntoMask_Sv'] = transport
+
+    # take the mean of the nCell values (since for each edge, the nCell values should be the same anyways)
+    # this will put the transportIntoMask_Sv datavaraible in coordinates of nEdges instead of nCells
+    ds_transect_edges['transportIntoMask_Sv'] = transport.mean(dim='TWO')
 
     return ds_transect_edges
 
