@@ -159,8 +159,8 @@ def open_transect_from_alg(ds, lats, lons, path, filename, geojson_file_name, ta
         Sorted edges that border the cells inside a mask created from a transect algorithm
     """
     # get edge and vertex indices   
-    region_lats = np.append(lats, lats[0])
-    region_lons = np.append(lons, lons[0])
+    region_lats = lats # np.append(lats, lats[0])
+    region_lons = lons # np.append(lons, lons[0])
     
     # # calculate transects from algorithm, sort vertices & edges to be in consecutive order
     test_edges, test_verts = calculate_transects_multiple_pts(region_lons, region_lats, ds)
@@ -318,7 +318,7 @@ def sorted_transect_edges_and_vertices(ds, xr_mask_transect_edges, xr_mask_trans
     np.int32(next_vertices): numpy.ndarray
         xr indices of the edges that define a transect now sorted to be in consecutive order
     """
-
+    
     # ----------- SORT THE EDGES IN XR_MASK_EDGES -----------
     xr_startEdge = np.int32(xr_mask_transect_edges[0])
     n_startVertex = ds.verticesOnEdge.isel(nEdges=xr_startEdge)[0]
@@ -332,6 +332,7 @@ def sorted_transect_edges_and_vertices(ds, xr_mask_transect_edges, xr_mask_trans
     counter = 0
     
     while len(remaining_edges)>0:
+    # while counter < 1047:
         # from the start vertex, find the edge attached to it s.t. the edge is also part of xr_mask_edges
         n_edgesOnStartVertex = ds.edgesOnVertex.isel(nVertices = xr_startVertex)
         xr_edgesOnStartVertex = n_to_xr_idx(n_edgesOnStartVertex)
@@ -350,7 +351,9 @@ def sorted_transect_edges_and_vertices(ds, xr_mask_transect_edges, xr_mask_trans
             remaining_vertices_lats = np.rad2deg(ds.latVertex.isel(nVertices = remaining_vertices))
             distances_from_current_vertex = distance_on_unit_sphere(remaining_vertices_lons, remaining_vertices_lats, current_vertex_lon, current_vertex_lat)
             min_distance_idx = distances_from_current_vertex.argmin()
-            xr_nextVertex = distances_from_current_vertex.isel(nVertices = min_distance_idx).nVertices.values
+            # xr_nextVertex = distances_from_current_vertex.isel(nVertices = [min_distance_idx]).nVertices.values
+            xr_nextVertex = n_to_xr_idx(np.int32(distances_from_current_vertex[min_distance_idx].VertexID))
+            # xr_nextVertex = np.int32(distances_from_current_vertex.nVertices.isel(nVertices = min_distance_idx).values)
     
             # find the edges that are on this vertex
             xr_nextEdges = n_to_xr_idx(ds.edgesOnVertex.isel(nVertices = xr_nextVertex))
@@ -396,7 +399,7 @@ def sorted_transect_edges_and_vertices(ds, xr_mask_transect_edges, xr_mask_trans
     # I actually don't understand why we would do this
     # next_vertices = np.append(next_vertices,n_to_xr_idx(n_startVertex)) 
     # next_edges = np.append(next_edges, np.int32(xr_mask_transect_edges[0]))
-
+    
     return np.int32(next_edges), np.int32(next_vertices)
     
     
