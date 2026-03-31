@@ -794,6 +794,7 @@ def format_transect_data(ds,edges):
     
     # conduct an isel
     ds_transect_edges_raw = ds.isel(nEdges = edges, nCells = xr_cellsOnTransectEdges)
+    ds_transect_edges_raw['dvEdge'] = ds_transect_edges_raw.dvEdge.expand_dims(TWO=2)
     
     # apply the nans_cellMask (where (identified by edges) the cellsOnEdge should be 0 but is actually currently -1)
     ds_transect_edges = ds_transect_edges_raw.where(~nans_cellMask)
@@ -972,7 +973,7 @@ def transport_in_density_space_from_ds(ds, edges, mask, target_coords):
     -------
     """
     xr_cellsOnTransectEdges , dss_transect_edges = format_transect_data(ds, edges)
-    dss_transect_edges_vIM = calculate_velo_into_mask(dss_transect_edges, xr_cellsOnTransectEdges, ds, mask, edges) 
+    dss_transect_edges_vIM = calculate_velo_into_mask(dss_transect_edges, ds, mask, edges) 
     dss_transect_edges_vIM = calculate_transport_into_mask(dss_transect_edges_vIM)
     dss_transect_edges_vIM, transport_transformed_cons = transport_in_density_coords(dss_transect_edges_vIM, target_coords)
 
