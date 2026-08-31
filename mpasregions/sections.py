@@ -221,7 +221,42 @@ def open_from_mask(ds,path,filename,geojson_file_name, tags, author):
     mask_edges, mask_vertices = find_and_sort_transect_edges_and_vertices(ds,mask)
 
     return mask_edges, mask_vertices, mask
+
+def vertices_and_edges_on_start_vertex(ds, xr_start_vertex):
+    """
+    get the vertices attached to the start index AND the index of the start vertex
+    """
+    # get the edges attached to the start vertex
+
+    n_edgesOnStartVertex_raw = ds.edgesOnVertex.isel(nVertices = xr_start_vertex) # a zero in this array (in n IDs) means there is a nan in this location
+    n_edgesOnStartVertex = n_edgesOnStartVertex_raw[n_edgesOnStartVertex_raw >0]
+    xr_edgesOnStartVertex = n_to_xr_idx(n_edgesOnStartVertex)
+
+    # identify the vertices on all the edges attached to the start_vertex
+    n_vertices_nextToStartVertex = np.unique(ds.verticesOnEdge.isel(nEdges = np.int32(xr_edgesOnStartVertex)))
+    xr_vertices_nextToStartVertex = n_to_xr_idx(n_vertices_nextToStartVertex)
+
+    return xr_vertices_nextToStartVertex
+
+def append_used_vertices(start_vertices, xr_start_vertex):
+    """
+    append an array of used vertices.
+    """
+    used_vertices = np.append(start_vertices, xr_start_vertex)
+
+    return used_vertices
+
+def find_xr_vertices_nextToStartVertex_Use(xr_vertices_nextToStartVertex, used_vertices):
+    """
+    identify xr_vertices_nextToStartVertex that we can actually travel to:
+    1. not the start vertex (eliminated b/c start vertex is in used_vertices), and we say to choose xr_vertices_nextToStartVertex not in used_vertices)
+    2. if distance_len_is_0 == True, then we allow for backtracking. used_vertices input should actually be twice_used_vertices. 
+       This prevents traveling back to a vertex we've already looped around. 
+    """
     
+    xr_vertices_nextToStartVertex_Use = np.delete(xr_vertices_nextToStartVertex, np.where(np.isin(xr_vertices_nextToStartVertex, used_vertices)))
+
+    return xr_vertices_nextToStartVertex_Use
 # ***************************************************************************************
 
 # --------- FUNCTIONS TO GET TRANSECT EDGES AND VERTICES FROM A MASK --------------
@@ -479,8 +514,10 @@ def calculate_transects(target_start_lat, target_start_lon, target_end_lat, targ
     # distance_on_unit_sphere(lon1, lat1, lon2, lat 2)
     # find the shortest path between the two points
     # of all of the points, find the vertex that is closest to the desired start point
+    all_openOceanVertices = np.int32(ds.nVertices.where((ds.cellsOnVertex != 0).all(dim = 'vertexDegree')).dropna(dim='nVertices').values)
+    
     dist_to_start = distance_on_unit_sphere(ds.lonVertex * 180/np.pi, ds.latVertex * 180/np.pi, target_start_lon, target_start_lat)
-    xr_start_vertex = dist_to_start.argmin()
+    xr_start_vertex = np.int32(dist_to_start.argmin())
     ### print('very first start vertex is ', np.int32(xr_start_vertex))
     n_start_vertex = xr_to_n_idx(xr_start_vertex)
     
@@ -501,83 +538,86 @@ def calculate_transects(target_start_lat, target_start_lon, target_end_lat, targ
     
     # get distance between target start point and target end point
     distance = distance_on_unit_sphere(start_lon, start_lat, target_end_lon, target_end_lat)
-    
-    # ---------- FIND NEXT VERTEX ----------------
-    # if start_vertices is None:
-    #     start_vertices = np.array([])
-    #     print('starting first segment.')
-    # else:
-    #     start_vertices
-    #     print('starting next segment. already used ', len(start_vertices), ' vertices')
+
     start_vertices = np.array([])
     next_vertices = np.array([])
+    twice_used_vertices = np.array([])
+    ordered_open_ocean_vertices = np.array([])
     
     count=0
     
-    while distance.min() > 10: #10000:
-        count += 1
-        
-        # get the edges attached to the start vertex
-        ### print(np.int32(xr_start_vertex))
-        n_edgesOnStartVertex_raw = ds.edgesOnVertex.isel(nVertices = xr_start_vertex) # a zero in this array (in n IDs) means there is a nan in this location
-        n_edgesOnStartVertex = n_edgesOnStartVertex_raw[n_edgesOnStartVertex_raw >0]
-        # n_edgesOnStartVertex = ds.edgesOnVertex.isel(nVertices = xr_start_vertex)
-        xr_edgesOnStartVertex = n_to_xr_idx(n_edgesOnStartVertex)
-        ### print('edges attached to start vertex ', np.int32(xr_start_vertex), ' are ', xr_edgesOnStartVertex)
-        
-        # check that the edges you selected are connected to the start vertex (returns in n indices)
-        # ds.verticesOnEdge.isel(nEdges = xr_edgesOnStartVertex[0])
-        
-        # for each of these edges, find the vertices they are connected to and then remove the start_vertex (we don't want to "travel back" to that vertex)
-        n_vertices_nextToStartVertex = np.unique(ds.verticesOnEdge.isel(nEdges = np.int32(xr_edgesOnStartVertex)))
-        xr_vertices_nextToStartVertex = n_to_xr_idx(n_vertices_nextToStartVertex)
-        # print(xr_vertices_nextToStartVertex)
-        ### print('possible vertices to move to are ', xr_vertices_nextToStartVertex)
+    while count < 10**4:
+        count +=1
+        xr_vertices_nextToStartVertex = vertices_and_edges_on_start_vertex(ds, xr_start_vertex)
+        used_vertices = append_used_vertices(start_vertices, xr_start_vertex)
+        xr_vertices_nextToStartVertex_Use = find_xr_vertices_nextToStartVertex_Use(xr_vertices_nextToStartVertex, used_vertices)
     
-        # used_vertices = np.union1d(start_vertices, xr_start_vertex)
-        used_vertices = np.append(start_vertices, xr_start_vertex)
-        ### print('vertices used are' , used_vertices)
-        
-        xr_vertices_nextToStartVertex_Use = np.delete(xr_vertices_nextToStartVertex, np.where(np.isin(xr_vertices_nextToStartVertex, used_vertices)))
-        ### print('excluding the start vertex, the next vertices we can move to are' , xr_vertices_nextToStartVertex_Use)
-        # print(xr_vertices_nextToStartVertex_Use)
-        # calculate the distance from these new vertices to the desired end point
-            # retrieve the lat and lon of the vertex
-        # ds_vertices_nextLatLon = ds[['lonVertex','latVertex']].where(ds.nVertices.isin(xr_vertices_nextToStartVertex_Use))
+        # find the vertex closest to the target end vertex
         ds_vertices_nextLatLon = ds[['lonVertex','latVertex']].isel(nVertices = xr_vertices_nextToStartVertex_Use)
         ds_vertices_nextLatLon['lonVertex'] = ds_vertices_nextLatLon.lonVertex * 180/np.pi
         ds_vertices_nextLatLon['latVertex'] = ds_vertices_nextLatLon.latVertex * 180/np.pi
         
         # calculate the distance between the next vertices and the target end
         distance = distance_on_unit_sphere(ds_vertices_nextLatLon.lonVertex, ds_vertices_nextLatLon.latVertex, target_end_lon, target_end_lat)
-
-        ### print('minimum distance is ', distance.min().values)
-        # select the nVertex that is the shortest distance from the end point
-        chosen_nextVertex_arg = distance.argmin()
+    
+        # if the used_vertices is length of distance is 0 (i.e., we've traveled to all possible vertices and haven't closed the transect)
+        if len(distance)==0:
+            # travel back to the last open ocean vertex (not connected to any land)
+            print('stuck in loop. returning to open ocean cell.')
+            
+            # of these open ocean vertices, which has the largest index in the used_vertices array?
+            # this is the most recently visited vertex on an open ocean cell
+            xr_last_openOceanVertex = ordered_open_ocean_vertices[-1]
+            ordered_open_ocean_vertices = ordered_open_ocean_vertices[:-1] # remove the last_openOceanVertex we just found from the list of potential vertices to travel to
+    
+            # the last OpenOceanVertex becomes the start vertex
+            xr_start_vertex = np.int32(xr_last_openOceanVertex)
+    
+            # we will travel to any vertex, even if it has already been traveled to ONCE
+            # we will NOT travel to any vertex that has been used TWICE or is the starting vertex
+            
+            xr_vertices_nextToStartVertex = vertices_and_edges_on_start_vertex(ds, xr_start_vertex)
+    
+            # find vertices we can actually travel to (vertices not used twice already that are not the lastOpenOceanVertex)
+            xr_vertices_nextToStartVertex_Use = find_xr_vertices_nextToStartVertex_Use(xr_vertices_nextToStartVertex, np.append(twice_used_vertices, xr_start_vertex))
+    
+            # find the vertex closest to the target end vertex
+            ds_vertices_nextLatLon = ds[['lonVertex','latVertex']].isel(nVertices = xr_vertices_nextToStartVertex_Use)
+            ds_vertices_nextLatLon['lonVertex'] = ds_vertices_nextLatLon.lonVertex * 180/np.pi
+            ds_vertices_nextLatLon['latVertex'] = ds_vertices_nextLatLon.latVertex * 180/np.pi
+        
+            # calculate the distance between the next vertices and the target end
+            distance = distance_on_unit_sphere(ds_vertices_nextLatLon.lonVertex, ds_vertices_nextLatLon.latVertex, target_end_lon, target_end_lat)
+    
+            # update the twice_used_vertices array
+            twice_used_vertices = append_used_vertices(twice_used_vertices, xr_start_vertex)
+    
+        # now take the minimum argument of the distance function
+        chosen_nextVertex_arg = np.int32(distance.argmin())
         n_chosen_nextVertex = distance.VertexID[chosen_nextVertex_arg]
         xr_chosen_nextVertex = n_to_xr_idx(n_chosen_nextVertex)
-        ### print('the chosen next vertex to move to is ', np.int32(xr_chosen_nextVertex))
-        
-        # ---------- UPDATE ARRAYS ----------------
-        
+    
         # store vertices
         start_vertices = np.append(start_vertices, xr_start_vertex)
         next_vertices = np.append(next_vertices, xr_chosen_nextVertex)
     
-        xr_start_vertex = xr_chosen_nextVertex 
+        if xr_chosen_nextVertex.values in all_openOceanVertices:
+            ordered_open_ocean_vertices = np.append(ordered_open_ocean_vertices, np.int32(xr_chosen_nextVertex))
+    
+        xr_start_vertex = np.int32(xr_chosen_nextVertex)
+    
     
         # break code if the next vertex is the vertex closest to the target end lat and lon
         if xr_chosen_nextVertex == xr_end_vertex:
             print('broken because reached end vertex')
             break
     
+    # modify next_vertices to also include the start vertex
+    next_vertices = np.insert(next_vertices, 0, n_to_xr_idx(n_start_vertex))
+
     # ---------- FIND EDGES OF TRANSECT ---------------- 
     # We want to identify the edges that connect the vertices. The vertices are already ordered consecutively (because the transects are built from an algorithm)
     # We will take advantage of this fact using a for loop to extract the edges that are shared between vertices next to each other
-    
-    # modify next_vertices to also include the start vertex
-    next_vertices = np.insert(next_vertices, 0, n_to_xr_idx(n_start_vertex))
-    
     
     # next vertices are in xr indices
     int_next_vertices = np.int32(next_vertices)
@@ -591,7 +631,6 @@ def calculate_transects(target_start_lat, target_start_lon, target_end_lat, targ
     
     xr_transect_edges = n_to_xr_idx(n_transect_edges)
     
-        
     return xr_transect_edges, next_vertices
 
 
