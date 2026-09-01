@@ -736,7 +736,7 @@ def transect_from_alg_create_nc(test_verts,ds,path,filename,geojson_file_name,ta
     
     # get the lats and lons of the test_verts to use for creation of a geojson file
     test_verts_lats = ds.latVertex.isel(nVertices = np.int32(test_verts)) * 180/np.pi #+ 50
-    test_verts_lons = ds.lonVertex.isel(nVertices = np.int32(test_verts)) * 180/np.pi #+ 360
+    test_verts_lons = ds.lonVertex.isel(nVertices = np.int32(test_verts)) * 180/np.pi # -180 #+ 360
     
     test_verts_lonslats = np.array([test_verts_lons,test_verts_lats]).T
     list_test_verts_lonslats = test_verts_lonslats.tolist()
@@ -778,6 +778,18 @@ def transect_from_alg_create_nc(test_verts,ds,path,filename,geojson_file_name,ta
             geojson.dump(transect_from_alg, f, indent=2)
         print('geojson file created')
     # ----------- CREATE NETCDF FILE -----------
+        with open(f'./{alg_filename}.geojson', 'r') as f:
+            geojson_360 = geojson.load(f)
+    
+        geojson_180 = geojson_360
+        feature_geometry = geojson_180['features'][0]['geometry']
+        feature_geometry_coords = feature_geometry['coordinates'][0]
+    
+        for lon in np.arange(0,len(feature_geometry_coords)):
+            feature_geometry_coords[lon][0] = np.mod(feature_geometry_coords[lon][0] + 180, 360) - 180
+    
+        with open(path + f'./{alg_filename}_180.geojson','w') as f:
+                    geojson.dump(geojson_180, f, indent=2)
     
     # check if the .nc mask file created from a transect algorithm exists
     check_alg_nc_existence = os.path.isfile(path + alg_filename + '.nc')
@@ -788,7 +800,7 @@ def transect_from_alg_create_nc(test_verts,ds,path,filename,geojson_file_name,ta
         dsMasks = xr.open_dataset(path + alg_filename + '.nc')
     else:
         print('Creating netcdf mask file from geojson file (vertices identified from transect algorithm)')
-        fcMask = read_feature_collection(path + alg_filename + '.geojson')
+        fcMask = read_feature_collection(path + alg_filename + '_180.geojson')
         # pool = create_pool(process_count=8)
         pool = None
         dsMasks = compute_mpas_region_masks(ds, fcMask, maskTypes=('cell',), pool=pool)
@@ -837,7 +849,7 @@ def format_transect_data(ds,edges):
     
     # apply the nans_cellMask (where (identified by edges) the cellsOnEdge should be 0 but is actually currently -1)
     ds_transect_edges = ds_transect_edges_raw.where(~nans_cellMask)
-    ds_transect_edges['nCells'] = ds_transect_edges.nCells.where(~nans_cellMask)
+    ds_transect_edges['nCells'] = ds.nCells.where(~nans_cellMask)
     
     # applying the nCells mask messes up the format of the normalVelocity datavariable that depends on nEdges
     # to fix this, preserve the normalVelocity dataset. Then add it back to the new dataset
@@ -904,16 +916,16 @@ def calculate_velo_into_mask(ds_transect_edges, global_ds, mask, edges, datavari
     
     # determine if the normal velocity points into or out of the mask 
     for i in range(0,len(xr_transect_cellsOnOceanEdges)):
-        for j in range(0,len(ds_transect_edges.xtime_startMonthly)):
+        for j in range(0,len(ds_transect_edges.Time)):
             cellsOnSelectedEdge = xr_transect_cellsOnOceanEdges.isel(nEdges = i)
             selectedEdge = np.int32(ds_transect_edges.nEdges.isel(nEdges = i))
-            selectedMonth = ds_transect_edges.xtime_startMonthly.isel(xtime_startMonthly=j)
+            selectedMonth = ds_transect_edges.Time.isel(Time=j)
     
             if cellsOnSelectedEdge.isel(TWO=0).isin(xr_cells_inside): # if A is inside the mask
-                ds_transect_edges.veloIntoMask.loc[dict(xtime_startMonthly = selectedMonth, nEdges = selectedEdge)] = ds_transect_edges[datavariable].loc[dict(xtime_startMonthly = selectedMonth, nEdges = selectedEdge)] * -1
+                ds_transect_edges.veloIntoMask.loc[dict(Time = selectedMonth, nEdges = selectedEdge)] = ds_transect_edges[datavariable].loc[dict(Time = selectedMonth, nEdges = selectedEdge)] * -1
     
             elif cellsOnSelectedEdge.isel(TWO=1).isin(xr_cells_inside): # if B is inside the mask
-                ds_transect_edges.veloIntoMask.loc[dict(xtime_startMonthly = selectedMonth, nEdges = selectedEdge)] = ds_transect_edges[datavariable].loc[dict(xtime_startMonthly = selectedMonth, nEdges = selectedEdge)] * 1
+                ds_transect_edges.veloIntoMask.loc[dict(Time = selectedMonth, nEdges = selectedEdge)] = ds_transect_edges[datavariable].loc[dict(Time = selectedMonth, nEdges = selectedEdge)] * 1
 
     return ds_transect_edges
 
